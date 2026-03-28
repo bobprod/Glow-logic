@@ -4,8 +4,10 @@ import { createUISlice, UISlice } from './slices/uiSlice';
 import { createMidiSlice, MidiSlice, MidiMapping } from './slices/midiSlice';
 import { createSmartModeSlice, SmartModeSlice, SmartPad } from './slices/smartModeSlice';
 import { createReactFlowSlice, ReactFlowSlice } from './slices/reactFlowSlice';
+import { createProjectSlice, ProjectSlice } from './slices/projectSlice';
+import { createTimelineSlice, TimelineSlice } from './slices/timelineSlice';
 
-type StoreState = UISlice & MidiSlice & SmartModeSlice & ReactFlowSlice;
+type StoreState = UISlice & MidiSlice & SmartModeSlice & ReactFlowSlice & ProjectSlice & TimelineSlice;
 
 const useStore = create<StoreState>()(
     persist(
@@ -14,6 +16,8 @@ const useStore = create<StoreState>()(
             ...createMidiSlice(set, get, api),
             ...createSmartModeSlice(set, get, api),
             ...createReactFlowSlice(set, get, api),
+            ...createProjectSlice(set, get, api),
+            ...createTimelineSlice(set, get, api),
         }),
         {
             name: 'glow-logic-storage',
@@ -29,6 +33,12 @@ const useStore = create<StoreState>()(
                 smartZoneValues: state.smartZoneValues,
                 smartPads: state.smartPads,
                 midiMappings: state.midiMappings,
+                currentProjectName: state.currentProjectName,
+                clips: state.clips,
+                markers: state.markers,
+                duration: state.duration,
+                zoom: state.zoom,
+                viewStart: state.viewStart,
             }),
         }
     )
@@ -36,3 +46,4 @@ const useStore = create<StoreState>()(
 
 export default useStore;
 export type { SmartPad, MidiMapping };
+export type { TimelineClip } from './slices/timelineSlice';

@@ -101,6 +101,44 @@ export default function Sidebar() {
                 </div>
             </div>
 
+            {/* SECTION: GENERATORS */}
+            <div className="mb-8">
+                <h3 className="text-[#94a3b8] text-xs font-bold uppercase tracking-[0.2em] mb-4">Generators</h3>
+                <div className="flex flex-col gap-3">
+
+                    <div
+                        className="group flex gap-3 items-center p-3 rounded-lg bg-[#1a1c23] border border-[#262c36] cursor-grab hover:border-green-500/50 hover:bg-[#1a1c23]/80 transition-all"
+                        onDragStart={(event) => onDragStart(event, 'lfoInput', 'LFO Wave')}
+                        draggable
+                    >
+                        <div className="w-10 h-10 rounded-md bg-slate-800/80 flex items-center justify-center text-slate-400 group-hover:text-green-400 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 32" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                                <path d="M0,16 C8,2 16,2 24,16 S40,30 48,16" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div className="text-white text-sm font-semibold">LFO Oscillator</div>
+                            <div className="text-slate-500 text-[10px] mt-0.5">Sine · Square · Triangle · Saw</div>
+                        </div>
+                    </div>
+
+                    <div
+                        className="group flex gap-3 items-center p-3 rounded-lg bg-[#1a1c23] border border-[#262c36] cursor-grab hover:border-orange-500/50 hover:bg-[#1a1c23]/80 transition-all"
+                        onDragStart={(event) => onDragStart(event, 'colorPicker', 'RGB Color')}
+                        draggable
+                    >
+                        <div className="w-10 h-10 rounded-md overflow-hidden flex-shrink-0">
+                            <div className="w-full h-full" style={{ background: 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)' }} />
+                        </div>
+                        <div>
+                            <div className="text-white text-sm font-semibold">RGB Color Picker</div>
+                            <div className="text-slate-500 text-[10px] mt-0.5">DMX R/G/B Channels</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
             {/* SECTION: OUTPUTS */}
             <div>
                 <h3 className="text-[#94a3b8] text-xs font-bold uppercase tracking-[0.2em] mb-4">Outputs</h3>

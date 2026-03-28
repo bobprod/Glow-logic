@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Play, Radio, Activity, StopCircle, PanelLeftClose, PanelLeft, Clock } from 'lucide-react';
+import { Settings, Play, Radio, Activity, StopCircle, PanelLeftClose, PanelLeft, Clock, FolderOpen } from 'lucide-react';
 import useStore from '../store/useStore';
 import { socket } from '../lib/socket';
 import { SettingsModal } from './ui/SettingsModal';
+import { ProjectModal } from './ui/ProjectModal';
 import { calcBPM, MAX_TAPS } from '../utils/bpm';
 
 export default function TopBar() {
@@ -14,10 +15,12 @@ export default function TopBar() {
         isSidebarVisible, setIsSidebarVisible,
         smartBlackout, setSmartBlackout,
         smartAutoPilot, setSmartAutoPilot,
-        bpm, setBpm
+        bpm, setBpm,
+        currentProjectName
     } = useStore();
 
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isProjectOpen, setIsProjectOpen] = useState(false);
     const tapTimesRef = useRef<number[]>([]);
     const [currentTime, setCurrentTime] = useState<string>('00:00:00');
 
@@ -186,10 +189,29 @@ export default function TopBar() {
                     {/* Tiny status dot */}
                     <div className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-green-500 rounded-full shadow-[0_0_5px_#22c55e]"></div>
                 </button>
+
+                <div className="h-6 w-[1px] bg-white/10" />
+
+                {/* Project Manager Toggle */}
+                <button
+                    onClick={() => setIsProjectOpen(true)}
+                    className="flex items-center gap-3 pl-2 pr-4 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 rounded-xl transition-all group"
+                >
+                    <div className="p-1.5 bg-cyan-500 rounded-lg text-black group-hover:scale-110 transition-transform">
+                        <FolderOpen className="w-4 h-4" />
+                    </div>
+                    <div className="text-left hidden md:block">
+                        <p className="text-[10px] font-black text-cyan-500 uppercase leading-none mb-0.5 tracking-tighter">Current Project</p>
+                        <p className="text-xs font-bold text-white leading-none tracking-tight truncate max-w-[120px]">
+                            {currentProjectName || 'Untitled Project'}
+                        </p>
+                    </div>
+                </button>
             </div>
 
-            {/* Settings Modal Extracted */}
+            {/* Modals */}
             {isSettingsOpen && <SettingsModal onClose={() => setIsSettingsOpen(false)} />}
+            {isProjectOpen && <ProjectModal onClose={() => setIsProjectOpen(false)} />}
         </div>
     );
 }

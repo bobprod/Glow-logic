@@ -1,6 +1,6 @@
 import { StateCreator } from 'zustand';
 import { Connection, Edge, EdgeChange, Node, NodeChange, addEdge, OnNodesChange, OnEdgesChange, OnConnect, applyNodeChanges, applyEdgeChanges } from 'reactflow';
-import { socket } from '../../lib/socket';
+import { dmxEngine } from '../../lib/dmxEngine';
 
 export interface ReactFlowSlice {
     nodes: Node[];
@@ -13,6 +13,11 @@ export interface ReactFlowSlice {
     addNode: (node: Node) => void;
     selectedNode: Node | null;
     setSelectedNode: (node: Node | null) => void;
+    // Undo / Redo
+    past: Array<{ nodes: Node[]; edges: Edge[] }>;
+    future: Array<{ nodes: Node[]; edges: Edge[] }>;
+    undo: () => void;
+    redo: () => void;
 }
 
 export const createReactFlowSlice: StateCreator<ReactFlowSlice, [], [], ReactFlowSlice> = (set, get) => ({
@@ -32,32 +37,55 @@ export const createReactFlowSlice: StateCreator<ReactFlowSlice, [], [], ReactFlo
     ],
     edges: [],
     selectedNode: null,
+    past: [],
+    future: [],
     setSelectedNode: (node: Node | null) => set({ selectedNode: node }),
 
     addNode: (node: Node) => {
-        set({ nodes: [...get().nodes, node] });
+        const { nodes, edges, past } = get();
+        set({
+            nodes: [...nodes, node],
+            past: [...past.slice(-49), { nodes: [...nodes], edges: [...edges] }],
+            future: [],
+        });
     },
 
     onNodesChange: (changes: NodeChange[]) => {
-        set({
-            nodes: applyNodeChanges(changes, get().nodes),
-        });
+        const hasRemove = changes.some(c => c.type === 'remove');
+        if (hasRemove) {
+            const { nodes, edges, past } = get();
+            set({ past: [...past.slice(-49), { nodes: [...nodes], edges: [...edges] }], future: [] });
+        }
+        set({ nodes: applyNodeChanges(changes, get().nodes) });
     },
 
     onEdgesChange: (changes: EdgeChange[]) => {
-        set({
-            edges: applyEdgeChanges(changes, get().edges),
-        });
+        const hasRemove = changes.some(c => c.type === 'remove');
+        if (hasRemove) {
+            const { nodes, edges, past } = get();
+            set({ past: [...past.slice(-49), { nodes: [...nodes], edges: [...edges] }], future: [] });
+        }
+        set({ edges: applyEdgeChanges(changes, get().edges) });
     },
 
     onConnect: (connection: Connection) => {
+        const { nodes, edges, past } = get();
+        const sourceNode = nodes.find(n => n.id === connection.source);
+        // Edge color based on source type
+        const colorMap: Record<string, string> = {
+            sliderInput: '#ec4899', padInput: '#eab308',
+            lfoInput: '#22c55e',   colorPicker: '#fb923c',
+            audioIn: '#a855f7',
+        };
+        const stroke = colorMap[sourceNode?.type ?? ''] ?? '#6366f1';
         set({
             edges: addEdge({
                 ...connection,
-                type: 'default', // React flow uses bezier by default, but let's make it look like the mockup
-                animated: false,
-                style: { stroke: '#06b6d4', strokeWidth: 2 }
-            }, get().edges),
+                animated: true,
+                style: { stroke, strokeWidth: 2.5, filter: `drop-shadow(0 0 5px ${stroke}80)` },
+            }, edges),
+            past: [...past.slice(-49), { nodes: [...nodes], edges: [...edges] }],
+            future: [],
         });
     },
 
@@ -67,28 +95,47 @@ export const createReactFlowSlice: StateCreator<ReactFlowSlice, [], [], ReactFlo
             nodes: get().nodes.map((node) => {
                 if (node.id === nodeId) {
                     const newData = { ...node.data, ...data };
-
-                    // Magie Live : Si un pad ou slider bouge, on regarde à quoi c'est connecté
+                    // Signal flow: Slider/Pad → DmxOutput via connected edges
                     if ((node.type === 'sliderInput' || node.type === 'padInput') && data.value !== undefined) {
-                        const connectedEdges = get().edges.filter(e => e.source === nodeId);
-
-                        connectedEdges.forEach(edge => {
-                            const targetNode = get().nodes.find(n => n.id === edge.target);
-                            // Si connecté à un Nœud DMX, on envoie la commande par WebSocket OS !
-                            if (targetNode?.type === 'dmxOutput') {
-                                socket?.emit("dmx_update", {
-                                    universe: targetNode.data.universe,
-                                    channel: targetNode.data.channel,
-                                    value: data.value
-                                });
+                        get().edges.filter(e => e.source === nodeId).forEach(edge => {
+                            const target = get().nodes.find(n => n.id === edge.target);
+                            if (target?.type === 'dmxOutput') {
+                                dmxEngine.setChannel(
+                                    (target.data.universe as number) ?? 1,
+                                    (target.data.channel as number) ?? 1,
+                                    data.value,
+                                );
                             }
-                        })
+                        });
                     }
-
                     return { ...node, data: newData };
                 }
                 return node;
             }),
+        });
+    },
+
+    undo: () => {
+        const { nodes, edges, past, future } = get();
+        if (past.length === 0) return;
+        const prev = past[past.length - 1];
+        set({
+            nodes: prev.nodes,
+            edges: prev.edges,
+            past: past.slice(0, -1),
+            future: [{ nodes: [...nodes], edges: [...edges] }, ...future].slice(0, 50),
+        });
+    },
+
+    redo: () => {
+        const { nodes, edges, past, future } = get();
+        if (future.length === 0) return;
+        const next = future[0];
+        set({
+            nodes: next.nodes,
+            edges: next.edges,
+            future: future.slice(1),
+            past: [...past, { nodes: [...nodes], edges: [...edges] }].slice(-50),
         });
     },
 });
