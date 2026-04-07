@@ -35,7 +35,7 @@ export default function SmartDashboard() {
     const {
         smartActiveScene: activeScene, setSmartActiveScene: setActiveScene,
         smartZoneValues: zoneValues, setSmartZoneValue,
-        smartPads: pads, addSmartPad
+        smartPads: pads, addSmartPad, removeSmartPad
     } = useStore();
 
     // Modal "New Scene"
@@ -265,7 +265,7 @@ export default function SmartDashboard() {
                             <div
                                 key={pad.id}
                                 onClick={() => handlePadClick(pad)}
-                                className={`rounded-2xl relative overflow-hidden cursor-pointer transition-all duration-200 hover:scale-[1.02] border-2 min-h-[140px] ${isActive
+                                className={`group rounded-2xl relative overflow-hidden cursor-pointer transition-all duration-200 hover:scale-[1.02] border-2 min-h-[140px] ${isActive
                                     ? `border-current ${pad.textColor} shadow-[0_0_30px_rgba(6,182,212,0.3)]`
                                     : 'border-transparent hover:border-white/10'
                                     }`}
@@ -275,6 +275,14 @@ export default function SmartDashboard() {
                                 {isActive && (
                                     <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-current animate-ping" />
                                 )}
+                                {/* Delete button — visible on hover */}
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); removeSmartPad(pad.id); }}
+                                    className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 hover:!opacity-100 w-6 h-6 rounded-full bg-black/60 hover:bg-red-500/80 flex items-center justify-center transition-all z-10"
+                                    title="Delete scene"
+                                >
+                                    <X className="w-3 h-3 text-white" />
+                                </button>
                                 <div className="relative h-full flex flex-col justify-end p-4">
                                     <div className={`mb-3 p-2.5 rounded-xl bg-white/10 w-fit ${pad.textColor}`}>
                                         {ICONS[pad.iconName] || <Zap className="w-6 h-6" />}

@@ -1,5 +1,7 @@
 import { StateCreator } from 'zustand';
 
+const SERVER_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3005';
+
 export interface ProjectListing {
     id: number;
     name: string;
@@ -12,6 +14,7 @@ export interface ProjectSlice {
     fetchProjects: () => Promise<void>;
     saveProject: (name: string) => Promise<void>;
     loadProject: (id: number) => Promise<void>;
+    deleteProject: (id: number) => Promise<void>;
 }
 
 export const createProjectSlice: StateCreator<any, [], [], ProjectSlice> = (set, get) => ({
@@ -20,7 +23,7 @@ export const createProjectSlice: StateCreator<any, [], [], ProjectSlice> = (set,
 
     fetchProjects: async () => {
         try {
-            const response = await fetch('http://localhost:3005/api/projects');
+            const response = await fetch(`${SERVER_URL}/api/projects`);
             const data = await response.json();
             set({ availableProjects: data });
         } catch (error) {
@@ -42,7 +45,7 @@ export const createProjectSlice: StateCreator<any, [], [], ProjectSlice> = (set,
                 duration: state.duration,
             };
 
-            const response = await fetch('http://localhost:3005/api/projects', {
+            const response = await fetch(`${SERVER_URL}/api/projects`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, data: projectData }),
@@ -59,7 +62,7 @@ export const createProjectSlice: StateCreator<any, [], [], ProjectSlice> = (set,
 
     loadProject: async (id: number) => {
         try {
-            const response = await fetch(`http://localhost:3005/api/projects/${id}`);
+            const response = await fetch(`${SERVER_URL}/api/projects/${id}`);
             const project = await response.json();
 
             if (project && project.data) {
@@ -77,6 +80,19 @@ export const createProjectSlice: StateCreator<any, [], [], ProjectSlice> = (set,
             }
         } catch (error) {
             console.error('Failed to load project', error);
+        }
+    },
+
+    deleteProject: async (id: number) => {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/projects/${id}`, {
+                method: 'DELETE',
+            });
+            if (response.ok) {
+                await get().fetchProjects();
+            }
+        } catch (error) {
+            console.error('Failed to delete project', error);
         }
     },
 });

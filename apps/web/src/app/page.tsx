@@ -173,7 +173,7 @@ function FlowCanvas() {
 
 // ─── Root page — handles Smart/Pro switch ────────────────────────
 export default function LogicCanvas() {
-  const { appMode, proView } = useStore();
+  const { appMode, proView, isSidebarVisible } = useStore();
 
   return (
     <div className="flex flex-col w-screen h-screen bg-black overflow-hidden relative">
@@ -188,7 +188,7 @@ export default function LogicCanvas() {
             <VisualizerView />
           ) : (
             <ReactFlowProvider>
-              <Sidebar />
+              {isSidebarVisible && <Sidebar />}
               <FlowCanvas />
             </ReactFlowProvider>
           )

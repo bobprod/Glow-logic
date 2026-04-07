@@ -14,6 +14,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({ onClose }) => {
         fetchProjects,
         saveProject,
         loadProject,
+        deleteProject,
         currentProjectName
     } = useStore();
 
@@ -142,7 +143,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({ onClose }) => {
                                                 className="p-2 hover:bg-red-500/20 text-slate-500 hover:text-red-400 rounded-lg transition-colors"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    // Handle delete logic here or via store
+                                                    deleteProject(project.id);
                                                 }}
                                             >
                                                 <Trash2 className="w-4 h-4" />

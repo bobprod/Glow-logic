@@ -29,6 +29,7 @@ export interface SmartModeSlice {
     smartPads: SmartPad[];
     setSmartPads: (pads: SmartPad[]) => void;
     addSmartPad: (pad: SmartPad) => void;
+    removeSmartPad: (id: number) => void;
     bpm: number;
     setBpm: (bpm: number) => void;
 }
@@ -47,6 +48,7 @@ export const createSmartModeSlice: StateCreator<SmartModeSlice, [], [], SmartMod
     smartPads: DEFAULT_PADS,
     setSmartPads: (pads: SmartPad[]) => set({ smartPads: pads }),
     addSmartPad: (pad: SmartPad) => set(state => ({ smartPads: [...state.smartPads, pad] })),
+    removeSmartPad: (id: number) => set(state => ({ smartPads: state.smartPads.filter(p => p.id !== id) })),
     bpm: 128.0,
     setBpm: (bpm: number) => set({ bpm }),
 });
