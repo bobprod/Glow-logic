@@ -1,50 +1,167 @@
-import Database from 'better-sqlite3';
-import path from 'path';
+import Database from "better-sqlite3";
+import path from "path";
 
 // Local database file path
-const dbPath = path.resolve(__dirname, '../../glow_logic.db');
+const dbPath = path.resolve(__dirname, "../../glow_logic.db");
 const db = new Database(dbPath);
 
 // Initialize schema
 db.exec(`
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
   CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     data TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
+  );
+  CREATE TABLE IF NOT EXISTS fixtures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    manufacturer TEXT,
+    channels TEXT NOT NULL,
+    total_channels INTEGER NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 export interface ProjectListing {
-    id: number;
-    name: string;
-    updated_at: string;
+  id: number;
+  name: string;
+  updated_at: string;
 }
 
 export const saveProject = (name: string, data: any) => {
-    const jsonData = JSON.stringify(data);
-    const stmt = db.prepare('INSERT OR REPLACE INTO projects (id, name, data, updated_at) VALUES ((SELECT id FROM projects WHERE name = ?), ?, ?, CURRENT_TIMESTAMP)');
-    const result = stmt.run(name, name, jsonData);
-    return result.lastInsertRowid;
+  const jsonData = JSON.stringify(data);
+  const stmt = db.prepare(
+    "INSERT OR REPLACE INTO projects (id, name, data, updated_at) VALUES ((SELECT id FROM projects WHERE name = ?), ?, ?, CURRENT_TIMESTAMP)",
+  );
+  const result = stmt.run(name, name, jsonData);
+  return result.lastInsertRowid;
 };
 
 export const getProjects = (): ProjectListing[] => {
-    const stmt = db.prepare('SELECT id, name, updated_at FROM projects ORDER BY updated_at DESC');
-    return stmt.all() as ProjectListing[];
+  const stmt = db.prepare(
+    "SELECT id, name, updated_at FROM projects ORDER BY updated_at DESC",
+  );
+  return stmt.all() as ProjectListing[];
 };
 
 export const getProjectById = (id: number) => {
-    const stmt = db.prepare('SELECT * FROM projects WHERE id = ?');
-    const project = stmt.get(id) as any;
-    if (project) {
-        project.data = JSON.parse(project.data);
-    }
-    return project;
+  const stmt = db.prepare("SELECT * FROM projects WHERE id = ?");
+  const project = stmt.get(id) as any;
+  if (project) {
+    project.data = JSON.parse(project.data);
+  }
+  return project;
 };
 
 export const deleteProject = (id: number) => {
-    const stmt = db.prepare('DELETE FROM projects WHERE id = ?');
-    return stmt.run(id);
+  const stmt = db.prepare("DELETE FROM projects WHERE id = ?");
+  return stmt.run(id);
+};
+
+// ─── Fixtures ──────────────────────────────────────────────────────────
+
+export interface FixtureRecord {
+  id: number;
+  name: string;
+  manufacturer: string | null;
+  channels: any[];
+  total_channels: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FixtureListing {
+  id: number;
+  name: string;
+  manufacturer: string | null;
+  total_channels: number;
+  updated_at: string;
+}
+
+export const saveFixture = (
+  name: string,
+  channels: any[],
+  manufacturer?: string,
+  notes?: string,
+  id?: number,
+): number => {
+  const jsonChannels = JSON.stringify(channels);
+  const total = channels.length;
+  if (id) {
+    const stmt = db.prepare(
+      "UPDATE fixtures SET name=?, manufacturer=?, channels=?, total_channels=?, notes=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+    );
+    stmt.run(
+      name,
+      manufacturer ?? null,
+      jsonChannels,
+      total,
+      notes ?? null,
+      id,
+    );
+    return id;
+  }
+  const stmt = db.prepare(
+    "INSERT INTO fixtures (name, manufacturer, channels, total_channels, notes) VALUES (?, ?, ?, ?, ?)",
+  );
+  const result = stmt.run(
+    name,
+    manufacturer ?? null,
+    jsonChannels,
+    total,
+    notes ?? null,
+  );
+  return Number(result.lastInsertRowid);
+};
+
+export const getFixtures = (): FixtureListing[] => {
+  const stmt = db.prepare(
+    "SELECT id, name, manufacturer, total_channels, updated_at FROM fixtures ORDER BY updated_at DESC",
+  );
+  return stmt.all() as FixtureListing[];
+};
+
+export const getFixtureById = (id: number): FixtureRecord | null => {
+  const stmt = db.prepare("SELECT * FROM fixtures WHERE id = ?");
+  const row = stmt.get(id) as any;
+  if (!row) return null;
+  row.channels = JSON.parse(row.channels);
+  return row as FixtureRecord;
+};
+
+export const deleteFixture = (id: number) => {
+  const stmt = db.prepare("DELETE FROM fixtures WHERE id = ?");
+  return stmt.run(id);
+};
+
+// ─── App Settings (LLM keys, preferences) ────────────────────
+
+export const getSetting = (key: string): string | null => {
+  const stmt = db.prepare("SELECT value FROM app_settings WHERE key = ?");
+  const row = stmt.get(key) as { value: string } | undefined;
+  return row ? row.value : null;
+};
+
+export const setSetting = (key: string, value: string): void => {
+  const stmt = db.prepare(
+    "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+  );
+  stmt.run(key, value);
+};
+
+export const getAllSettings = (): Record<string, string> => {
+  const stmt = db.prepare("SELECT key, value FROM app_settings");
+  const rows = stmt.all() as { key: string; value: string }[];
+  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
 };
 
 export default db;

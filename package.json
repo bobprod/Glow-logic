@@ -9,7 +9,10 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspaces",
-    "install:all": "npm install"
+    "install:all": "npm install",
+    "launcher": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Launch-GlowLogic.ps1",
+    "launcher:stop": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Stop-GlowLogic.ps1",
+    "launcher:status": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Status-GlowLogic.ps1"
   },
   "dependencies": {
     "lightningcss-linux-x64-gnu": "^1.32.0"

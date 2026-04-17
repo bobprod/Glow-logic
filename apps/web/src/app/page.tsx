@@ -1,29 +1,31 @@
 "use client";
 
-import React, { useRef, useCallback, useState, useEffect } from 'react';
+import React, { useRef, useCallback, useState, useEffect } from "react";
 import ReactFlow, {
   Background,
   Controls,
   ReactFlowProvider,
   useReactFlow,
-} from 'reactflow';
-import 'reactflow/dist/style.css';
-import useStore from '../store/useStore';
-import DmxOutputNode from '../components/nodes/DmxOutputNode';
-import SliderNode from '../components/nodes/SliderNode';
-import PadNode from '../components/nodes/PadNode';
-import AudioInNode from '../components/nodes/AudioInNode';
-import ArtNetOutNode from '../components/nodes/ArtNetOutNode';
-import LfoNode from '../components/nodes/LfoNode';
-import ColorPickerNode from '../components/nodes/ColorPickerNode';
-import Sidebar from '../components/Sidebar';
-import WidgetPanel from '../components/WidgetPanel';
-import SmartDashboard from '../components/SmartDashboard';
-import MacroTimeline from '../components/MacroTimeline';
-import TopBar from '../components/TopBar';
-import VisualizerView from './visualizer/page';
-import LivePerformanceView from '../components/LivePerformanceView';
-import MidiListener from '../components/MidiListener';
+} from "reactflow";
+import "reactflow/dist/style.css";
+import useStore from "../store/useStore";
+import DmxOutputNode from "../components/nodes/DmxOutputNode";
+import SliderNode from "../components/nodes/SliderNode";
+import PadNode from "../components/nodes/PadNode";
+import AudioInNode from "../components/nodes/AudioInNode";
+import ArtNetOutNode from "../components/nodes/ArtNetOutNode";
+import LfoNode from "../components/nodes/LfoNode";
+import ColorPickerNode from "../components/nodes/ColorPickerNode";
+import Sidebar from "../components/Sidebar";
+import WidgetPanel from "../components/WidgetPanel";
+import SmartDashboard from "../components/SmartDashboard";
+import MacroTimeline from "../components/MacroTimeline";
+import TopBar from "../components/TopBar";
+import VisualizerView from "./visualizer/page";
+import LivePerformanceView from "../components/LivePerformanceView";
+import MidiListener from "../components/MidiListener";
+import { ToastContainer } from "../components/ui/ToastContainer";
+import { socket } from "../lib/socket";
 
 // Custom node types
 const nodeTypes = {
@@ -41,18 +43,38 @@ const getId = () => `node-${idCounter++}`;
 
 function FlowCanvas() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setSelectedNode, undo, redo } = useStore();
+  const {
+    nodes,
+    edges,
+    onNodesChange,
+    onEdgesChange,
+    onConnect,
+    addNode,
+    setSelectedNode,
+    undo,
+    redo,
+  } = useStore();
 
   // Ctrl+Z / Ctrl+Y keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
-      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-      if (e.key === 'z') { e.preventDefault(); undo(); }
-      if (e.key === 'y') { e.preventDefault(); redo(); }
+      if (
+        document.activeElement?.tagName === "INPUT" ||
+        document.activeElement?.tagName === "TEXTAREA"
+      )
+        return;
+      if (e.key === "z") {
+        e.preventDefault();
+        undo();
+      }
+      if (e.key === "y") {
+        e.preventDefault();
+        redo();
+      }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, [undo, redo]);
   const { project } = useReactFlow();
 
@@ -61,7 +83,7 @@ function FlowCanvas() {
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
+    event.dataTransfer.dropEffect = "move";
     setIsDragOver(true);
   }, []);
 
@@ -75,7 +97,7 @@ function FlowCanvas() {
       setIsDragOver(false);
 
       const reactFlowBounds = reactFlowWrapper.current?.getBoundingClientRect();
-      const rawData = event.dataTransfer.getData('application/reactflow');
+      const rawData = event.dataTransfer.getData("application/reactflow");
 
       if (!rawData || !reactFlowBounds) return;
 
@@ -94,33 +116,40 @@ function FlowCanvas() {
       // Build data payload per node type
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data: any = { label: parsedData.label };
-      if (parsedData.type === 'sliderInput' || parsedData.type === 'padInput') {
+      if (parsedData.type === "sliderInput" || parsedData.type === "padInput") {
         data.value = 0;
       }
-      if (parsedData.type === 'dmxOutput') {
+      if (parsedData.type === "dmxOutput") {
         data.universe = 1;
         data.channel = 1;
       }
-      if (parsedData.type === 'artnetOut') {
+      if (parsedData.type === "artnetOut") {
         data.universe = 1;
       }
-      if (parsedData.type === 'lfoInput') {
-        data.freq = 0.5; data.depth = 255; data.offset = 0; data.wave = 'sine';
-        data.universe = 1; data.channel = 1;
+      if (parsedData.type === "lfoInput") {
+        data.freq = 0.5;
+        data.depth = 255;
+        data.offset = 0;
+        data.wave = "sine";
+        data.universe = 1;
+        data.channel = 1;
       }
-      if (parsedData.type === 'colorPicker') {
-        data.hex = '#ff0000'; data.universe = 1;
-        data.rCh = 1; data.gCh = 2; data.bCh = 3;
+      if (parsedData.type === "colorPicker") {
+        data.hex = "#ff0000";
+        data.universe = 1;
+        data.rCh = 1;
+        data.gCh = 2;
+        data.bCh = 3;
       }
 
       addNode({ id: getId(), type: parsedData.type, position, data });
     },
-    [project, addNode]
+    [project, addNode],
   );
 
   return (
     <div
-      className={`flex-1 h-full relative transition-all duration-300 bg-[#0A0A0C] ${isDragOver ? 'ring-2 ring-cyan-500/40 ring-inset shadow-[inset_0_0_50px_rgba(6,182,212,0.1)]' : ''}`}
+      className={`flex-1 h-full relative transition-all duration-300 bg-[#0A0A0C] ${isDragOver ? "ring-2 ring-cyan-500/40 ring-inset shadow-[inset_0_0_50px_rgba(6,182,212,0.1)]" : ""}`}
       ref={reactFlowWrapper}
     >
       {/* Premium Radial Vignette Overlay */}
@@ -142,7 +171,7 @@ function FlowCanvas() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         nodeTypes={nodeTypes}
-        onInit={() => console.log('✅ Flow initialisé')}
+        onInit={() => console.log("✅ Flow initialisé")}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
@@ -170,32 +199,86 @@ function FlowCanvas() {
   );
 }
 
-
 // ─── Root page — handles Smart/Pro switch ────────────────────────
 export default function LogicCanvas() {
-  const { appMode, proView } = useStore();
+  const { appMode, proView, addToast, saveProject, currentProjectName } =
+    useStore();
+
+  // Socket connection feedback via toasts
+  useEffect(() => {
+    const onConnect = () =>
+      addToast({
+        type: "success",
+        message: "Backend connecté",
+        detail: "Socket.IO OK",
+      });
+    const onDisconnect = () =>
+      addToast({
+        type: "error",
+        message: "Backend déconnecté",
+        detail: "Tentative de reconnexion…",
+        duration: 5000,
+      });
+    const onError = (err: Error) =>
+      addToast({
+        type: "error",
+        message: "Erreur socket",
+        detail: err.message,
+        duration: 5000,
+      });
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    socket.on("connect_error", onError);
+    return () => {
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+      socket.off("connect_error", onError);
+    };
+  }, [addToast]);
+
+  // Ctrl+S → quick save project
+  useEffect(() => {
+    const handler = async (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        const name =
+          currentProjectName || `Projet ${new Date().toLocaleString("fr-FR")}`;
+        try {
+          await saveProject(name);
+          addToast({
+            type: "success",
+            message: "Projet sauvegardé",
+            detail: name,
+          });
+        } catch {
+          addToast({ type: "error", message: "Échec de la sauvegarde" });
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [addToast, saveProject, currentProjectName]);
 
   return (
     <div className="flex flex-col w-screen h-screen bg-black overflow-hidden relative">
       <MidiListener />
+      <ToastContainer />
       <TopBar />
 
       <div className="flex-1 flex overflow-hidden relative">
-        {appMode === 'smart' && <SmartDashboard />}
-        {appMode === 'live' && <LivePerformanceView />}
-        {appMode === 'creator' && (
-          proView === 'visualizer' ? (
+        {appMode === "smart" && <SmartDashboard />}
+        {appMode === "live" && <LivePerformanceView />}
+        {appMode === "creator" &&
+          (proView === "visualizer" ? (
             <VisualizerView />
           ) : (
             <ReactFlowProvider>
               <Sidebar />
               <FlowCanvas />
             </ReactFlowProvider>
-          )
-        )}
+          ))}
       </div>
       <MacroTimeline />
     </div>
   );
 }
-

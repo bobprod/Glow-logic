@@ -1,0 +1,51 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#07111F"/>
+      <stop offset="1" stop-color="#111B2E"/>
+    </linearGradient>
+    <radialGradient id="cyanGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(192 180) rotate(42) scale(232 190)">
+      <stop stop-color="#00E7FF" stop-opacity="0.48"/>
+      <stop offset="1" stop-color="#00E7FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="amberGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(336 314) rotate(18) scale(188 156)">
+      <stop stop-color="#FFB347" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#FFB347" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="154" y1="132" x2="358" y2="348" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6AF7FF"/>
+      <stop offset="0.62" stop-color="#12A9FF"/>
+      <stop offset="1" stop-color="#7C8CFF"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="176" y1="102" x2="308" y2="308" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6AF7FF" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#6AF7FF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="beamWarm" x1="336" y1="82" x2="236" y2="322" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB347" stop-opacity="0.44"/>
+      <stop offset="1" stop-color="#FFB347" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="36" y="36" width="440" height="440" rx="110" fill="url(#bg)"/>
+  <rect x="36" y="36" width="440" height="440" rx="110" stroke="rgba(255,255,255,0.08)"/>
+  <rect x="36" y="36" width="440" height="440" rx="110" fill="url(#cyanGlow)"/>
+  <rect x="36" y="36" width="440" height="440" rx="110" fill="url(#amberGlow)"/>
+
+  <path d="M154 96L240 264H194L126 148L154 96Z" fill="url(#beam)"/>
+  <path d="M364 86L316 272H278L332 126L364 86Z" fill="url(#beamWarm)"/>
+
+  <path d="M256 136C311.228 136 356 180.772 356 236C356 291.228 311.228 336 256 336C200.772 336 156 291.228 156 236C156 180.772 200.772 136 256 136Z" stroke="url(#ring)" stroke-width="34" stroke-linecap="round" stroke-dasharray="475 92"/>
+  <path d="M316 236H246" stroke="#FFB347" stroke-width="28" stroke-linecap="round"/>
+  <path d="M318 236C318 271.346 289.346 300 254 300" stroke="#FFB347" stroke-width="28" stroke-linecap="round"/>
+
+  <path d="M122 334C160 308 201 294 244 292" stroke="#62EFFF" stroke-width="10" stroke-linecap="round" opacity="0.72"/>
+  <path d="M270 291C309 292 347 302 388 324" stroke="#FFB347" stroke-width="10" stroke-linecap="round" opacity="0.66"/>
+
+  <circle cx="122" cy="334" r="24" fill="#08131E" stroke="#63F5FF" stroke-width="10"/>
+  <circle cx="256" cy="291" r="18" fill="#08131E" stroke="#63F5FF" stroke-width="8"/>
+  <circle cx="388" cy="324" r="22" fill="#08131E" stroke="#FFB347" stroke-width="10"/>
+
+  <circle cx="178" cy="132" r="14" fill="#6AF7FF" fill-opacity="0.42"/>
+  <circle cx="342" cy="122" r="16" fill="#FFB347" fill-opacity="0.36"/>
+</svg>
