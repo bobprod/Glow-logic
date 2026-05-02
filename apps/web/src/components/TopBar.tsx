@@ -16,10 +16,13 @@ import {
   Save,
   Undo2,
   Redo2,
+  LayoutGrid,
+  Zap,
+  Sparkles,
+  Brain,
 } from "lucide-react";
 import useStore from "../store/useStore";
 import { socket } from "../lib/socket";
-import { SettingsModal } from "./ui/SettingsModal";
 import { ProjectModal } from "./ui/ProjectModal";
 import { calcBPM, MAX_TAPS } from "../utils/bpm";
 
@@ -52,7 +55,6 @@ export default function TopBar() {
     if (pathname !== "/") router.push("/");
   };
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProjectOpen, setIsProjectOpen] = useState(false);
   const tapTimesRef = useRef<number[]>([]);
   const [currentTime, setCurrentTime] = useState<string>("00:00:00");
@@ -169,6 +171,31 @@ export default function TopBar() {
               GLOW <span className="font-light">LOGIC</span>
             </h1>
           </div>
+        </div>
+
+        <div className="h-6 w-[1px] bg-white/10" />
+
+        {/* TOOLS NAV */}
+        <div className="flex items-center gap-1">
+          {[
+            { href: "/patch", label: "PATCH", icon: LayoutGrid, color: "text-emerald-400", activeBg: "bg-emerald-500/20 border-emerald-500/30" },
+            { href: "/dmx-tester", label: "DMX TEST", icon: Zap, color: "text-yellow-400", activeBg: "bg-yellow-500/20 border-yellow-500/30" },
+            { href: "/effects", label: "EFFETS", icon: Sparkles, color: "text-purple-400", activeBg: "bg-purple-500/20 border-purple-500/30" },
+            { href: "/ai-lighting", label: "IA", icon: Brain, color: "text-cyan-400", activeBg: "bg-cyan-500/20 border-cyan-500/30" },
+          ].map(({ href, label, icon: Icon, color, activeBg }) => (
+            <button
+              key={href}
+              onClick={() => router.push(href)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                pathname === href
+                  ? `${activeBg} ${color}`
+                  : "bg-transparent border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/5"
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">{label}</span>
+            </button>
+          ))}
         </div>
 
         <div className="h-6 w-[1px] bg-white/10" />
@@ -352,11 +379,11 @@ export default function TopBar() {
           <span className="hidden lg:inline">SCAN FIXTURE</span>
         </button>
 
-        {/* Settings Toggle */}
+        {/* Settings — full page */}
         <button
-          onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+          onClick={() => router.push("/settings")}
           className="p-2 bg-black/40 hover:bg-white/10 rounded-xl border border-white/5 transition-all text-slate-400 hover:text-white group relative"
-          title="Settings"
+          title="Paramètres"
         >
           <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500" />
           {/* Tiny status dot */}
@@ -385,9 +412,6 @@ export default function TopBar() {
       </div>
 
       {/* Modals */}
-      {isSettingsOpen && (
-        <SettingsModal onClose={() => setIsSettingsOpen(false)} />
-      )}
       {isProjectOpen && (
         <ProjectModal onClose={() => setIsProjectOpen(false)} />
       )}

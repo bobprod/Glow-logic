@@ -11,3 +11,8 @@ build
 .claude
 *.db
 apps/web/test-results
+
+# Runtime / logs
+logs/
+*.log
+apps/server/data/

@@ -28,6 +28,24 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS patch (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    fixture_type TEXT NOT NULL DEFAULT 'PAR LED',
+    manufacturer TEXT,
+    model TEXT,
+    universe INTEGER NOT NULL DEFAULT 1,
+    start_address INTEGER NOT NULL DEFAULT 1,
+    channel_count INTEGER NOT NULL DEFAULT 1,
+    profile TEXT NOT NULL DEFAULT '[]',
+    mode_name TEXT,
+    grp TEXT NOT NULL DEFAULT 'A',
+    height_3d REAL NOT NULL DEFAULT 3.0,
+    rotation_3d REAL NOT NULL DEFAULT 0.0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 export interface ProjectListing {
@@ -162,6 +180,77 @@ export const getAllSettings = (): Record<string, string> => {
   const stmt = db.prepare("SELECT key, value FROM app_settings");
   const rows = stmt.all() as { key: string; value: string }[];
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+};
+
+// ─── Patch DMX ─────────────────────────────────────────────────
+
+export interface PatchedFixture {
+  id: number;
+  name: string;
+  fixture_type: string;
+  manufacturer: string | null;
+  model: string | null;
+  universe: number;
+  start_address: number;
+  channel_count: number;
+  profile: string[];
+  mode_name: string | null;
+  grp: string;
+  height_3d: number;
+  rotation_3d: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export const getPatch = (): PatchedFixture[] => {
+  const rows = db.prepare("SELECT * FROM patch ORDER BY universe, start_address").all() as any[];
+  return rows.map((r) => ({ ...r, profile: JSON.parse(r.profile) }));
+};
+
+export const getPatchById = (id: number): PatchedFixture | null => {
+  const row = db.prepare("SELECT * FROM patch WHERE id = ?").get(id) as any;
+  if (!row) return null;
+  return { ...row, profile: JSON.parse(row.profile) };
+};
+
+export const addPatchFixture = (f: Omit<PatchedFixture, "id" | "created_at" | "updated_at">): number => {
+  const stmt = db.prepare(`
+    INSERT INTO patch (name, fixture_type, manufacturer, model, universe, start_address,
+      channel_count, profile, mode_name, grp, height_3d, rotation_3d, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const res = stmt.run(
+    f.name, f.fixture_type, f.manufacturer ?? null, f.model ?? null,
+    f.universe, f.start_address, f.channel_count, JSON.stringify(f.profile),
+    f.mode_name ?? null, f.grp, f.height_3d, f.rotation_3d, f.sort_order,
+  );
+  return Number(res.lastInsertRowid);
+};
+
+export const updatePatchFixture = (id: number, f: Partial<Omit<PatchedFixture, "id" | "created_at" | "updated_at">>): void => {
+  const fields: string[] = [];
+  const vals: any[] = [];
+  const map: Record<string, any> = { ...f };
+  if ("profile" in map) map.profile = JSON.stringify(map.profile);
+  for (const [k, v] of Object.entries(map)) {
+    fields.push(`${k} = ?`);
+    vals.push(v);
+  }
+  fields.push("updated_at = CURRENT_TIMESTAMP");
+  vals.push(id);
+  db.prepare(`UPDATE patch SET ${fields.join(", ")} WHERE id = ?`).run(...vals);
+};
+
+export const deletePatchFixture = (id: number): void => {
+  db.prepare("DELETE FROM patch WHERE id = ?").run(id);
+};
+
+export const getNextAddress = (universe: number): number => {
+  const row = db.prepare(
+    "SELECT MAX(start_address + channel_count - 1) as last FROM patch WHERE universe = ?"
+  ).get(universe) as { last: number | null };
+  return (row.last ?? 0) + 1;
 };
 
 export default db;

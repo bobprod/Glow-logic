@@ -11,6 +11,8 @@ import { createReactFlowSlice, ReactFlowSlice } from "./slices/reactFlowSlice";
 import { createProjectSlice, ProjectSlice } from "./slices/projectSlice";
 import { createTimelineSlice, TimelineSlice } from "./slices/timelineSlice";
 import { createToastSlice, ToastSlice } from "./slices/toastSlice";
+import { createPatchSlice, PatchSlice } from "./slices/patchSlice";
+import { createAISlice, AISlice } from "./slices/aiSlice";
 
 type StoreState = UISlice &
   MidiSlice &
@@ -18,7 +20,9 @@ type StoreState = UISlice &
   ReactFlowSlice &
   ProjectSlice &
   TimelineSlice &
-  ToastSlice;
+  ToastSlice &
+  PatchSlice &
+  AISlice;
 
 const useStore = create<StoreState>()(
   persist(
@@ -30,6 +34,8 @@ const useStore = create<StoreState>()(
       ...createProjectSlice(set, get, api),
       ...createTimelineSlice(set, get, api),
       ...createToastSlice(set, get, api),
+      ...createPatchSlice(set, get, api),
+      ...createAISlice(set, get, api),
     }),
     {
       name: "glow-logic-storage",
@@ -60,3 +66,5 @@ export default useStore;
 export type { SmartPad, MidiMapping };
 export type { TimelineClip } from "./slices/timelineSlice";
 export type { Toast, ToastType } from "./slices/toastSlice";
+export type { PatchedFixture } from "./slices/patchSlice";
+export type { AIDropEffect, AIGroupConfig } from "./slices/aiSlice";
