@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Glow Logic - Generate PWA Icons</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #0a0c10; color: white; padding: 20px; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { color: #06b6d4; }
+    .icon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 20px; }
+    .icon-card { background: #1a1f2e; border-radius: 12px; padding: 20px; text-align: center; }
+    .icon-card img { max-width: 100%; height: auto; border-radius: 8px; }
+    .icon-card p { margin-top: 10px; color: #94a3b8; }
+    button { background: #06b6d4; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+    button:hover { background: #0891b2; }
+    .download-all { margin-top: 20px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Glow Logic - Generate PWA Icons</h1>
+    <p>Cliquez sur "Generate Icons" pour créer les icônes PWA dans différentes tailles.</p>
+    
+    <div class="icon-grid">
+      <div class="icon-card">
+        <canvas id="icon-72" width="72" height="72"></canvas>
+        <p>72x72</p>
+      </div>
+      <div class="icon-card">
+        <canvas id="icon-96" width="96" height="96"></canvas>
+        <p>96x96</p>
+      </div>
+      <div class="icon-card">
+        <canvas id="icon-128" width="128" height="128"></canvas>
+        <p>128x128</p>
+      </div>
+      <div class="icon-card">
+        <canvas id="icon-144" width="144" height="144"></canvas>
+        <p>144x144</p>
+      </div>
+      <div class="icon-card">
+        <canvas id="icon-152" width="152" height="152"></canvas>
+        <p>152x152</p>
+      </div>
+      <div class="icon-card">
+        <canvas id="icon-192" width="192" height="192"></canvas>
+        <p>192x192</p>
+      </div>
+      <div class="icon-card">
+        <canvas id="icon-384" width="384" height="384"></canvas>
+        <p>384x384</p>
+      </div>
+      <div class="icon-card">
+        <canvas id="icon-512" width="512" height="512"></canvas>
+        <p>512x512</p>
+      </div>
+    </div>
+    
+    <div class="download-all">
+      <button onclick="generateAllIcons()">Generate Icons</button>
+      <button onclick="downloadAll()">Download All</button>
+    </div>
+  </div>
+
+  <script>
+    function drawIcon(canvas, size) {
+      const ctx = canvas.getContext('2d');
+      const scale = size / 512;
+      
+      // Background
+      const bgGradient = ctx.createLinearGradient(0, 0, size, size);
+      bgGradient.addColorStop(0, '#0a0c10');
+      bgGradient.addColorStop(1, '#1a1f2e');
+      
+      // Rounded rectangle
+      const radius = 96 * scale;
+      ctx.beginPath();
+      ctx.moveTo(radius, 0);
+      ctx.lineTo(size - radius, 0);
+      ctx.quadraticCurveTo(size, 0, size, radius);
+      ctx.lineTo(size, size - radius);
+      ctx.quadraticCurveTo(size, size, size - radius, size);
+      ctx.lineTo(radius, size);
+      ctx.quadraticCurveTo(0, size, 0, size - radius);
+      ctx.lineTo(0, radius);
+      ctx.quadraticCurveTo(0, 0, radius, 0);
+      ctx.closePath();
+      ctx.fillStyle = bgGradient;
+      ctx.fill();
+      
+      // Glow gradient
+      const glowGradient = ctx.createLinearGradient(0, 0, size, size);
+      glowGradient.addColorStop(0, '#06b6d4');
+      glowGradient.addColorStop(1, '#8b5cf6');
+      
+      // Outer circle
+      ctx.beginPath();
+      ctx.arc(size/2, size * 0.39, 80 * scale, 0, Math.PI * 2);
+      ctx.strokeStyle = glowGradient;
+      ctx.lineWidth = 12 * scale;
+      ctx.stroke();
+      
+      // Inner circle
+      ctx.beginPath();
+      ctx.arc(size/2, size * 0.39, 40 * scale, 0, Math.PI * 2);
+      ctx.fillStyle = glowGradient;
+      ctx.globalAlpha = 0.8;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      
+      // Waves
+      ctx.strokeStyle = glowGradient;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      
+      // Wave 1
+      ctx.beginPath();
+      ctx.moveTo(176 * scale, 320 * scale);
+      ctx.lineTo(256 * scale, 260 * scale);
+      ctx.lineTo(336 * scale, 320 * scale);
+      ctx.lineWidth = 8 * scale;
+      ctx.stroke();
+      
+      // Wave 2
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(200 * scale, 360 * scale);
+      ctx.lineTo(256 * scale, 310 * scale);
+      ctx.lineTo(312 * scale, 360 * scale);
+      ctx.lineWidth = 6 * scale;
+      ctx.stroke();
+      
+      // Wave 3
+      ctx.globalAlpha = 0.4;
+      ctx.beginPath();
+      ctx.moveTo(224 * scale, 400 * scale);
+      ctx.lineTo(256 * scale, 360 * scale);
+      ctx.lineTo(288 * scale, 400 * scale);
+      ctx.lineWidth = 4 * scale;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      
+      // Text
+      ctx.fillStyle = 'white';
+      ctx.font = `bold ${48 * scale}px Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('GLOW', size/2, 460 * scale);
+    }
+    
+    function generateAllIcons() {
+      const sizes = [72, 96, 128, 144, 152, 192, 384, 512];
+      sizes.forEach(size => {
+        const canvas = document.getElementById(`icon-${size}`);
+        if (canvas) {
+          drawIcon(canvas, size);
+        }
+      });
+    }
+    
+    function downloadIcon(canvas, filename) {
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+    
+    function downloadAll() {
+      const sizes = [72, 96, 128, 144, 152, 192, 384, 512];
+      sizes.forEach((size, index) => {
+        setTimeout(() => {
+          const canvas = document.getElementById(`icon-${size}`);
+          if (canvas) {
+            downloadIcon(canvas, `icon-${size}x${size}.png`);
+          }
+        }, index * 200);
+      });
+    }
+    
+    // Generate on load
+    window.onload = generateAllIcons;
+  </script>
+</body>
+</html>

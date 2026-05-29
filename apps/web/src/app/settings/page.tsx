@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
-type ProviderId = "openai" | "anthropic" | "gemini" | "deepseek" | "qwen" | "nvidia" | "huggingface" | "openrouter";
+type ProviderId = "openai" | "anthropic" | "gemini" | "deepseek" | "qwen" | "nvidia" | "huggingface" | "openrouter" | "nvidia_nim" | "opencode_go";
 type LlmKeys = Record<string, { key: string; model: string }>;
 
 interface ProtocolCfg { qlcHost: string; qlcPort: number; oscPort: number; artnetHost: string; artnetPort: number; artnetUniverse: number; }
@@ -28,7 +28,9 @@ const LLM_PROVIDERS = [
   { id: "anthropic",   name: "Claude (Anthropic)",  color: "#f97316", ph: "sk-ant-...", docs: "https://console.anthropic.com/settings/keys",      models: ["claude-opus-4-20250514", "claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"], def: "claude-sonnet-4-20250514" },
   { id: "gemini",      name: "Google Gemini",       color: "#3b82f6", ph: "AIza...",   docs: "https://aistudio.google.com/app/apikey",           models: ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"], def: "gemini-1.5-flash" },
   { id: "deepseek",    name: "DeepSeek",            color: "#6366f1", ph: "sk-...",     docs: "https://platform.deepseek.com/api_keys",           models: ["deepseek-chat", "deepseek-reasoner"], def: "deepseek-chat" },
-  { id: "openrouter",  name: "OpenRouter",          color: "#ec4899", ph: "sk-or-...", docs: "https://openrouter.ai/keys",                       models: ["anthropic/claude-3.5-sonnet", "openai/gpt-4o", "google/gemini-pro-1.5"], def: "anthropic/claude-3.5-sonnet", note: "300+ modèles" },
+  { id: "openrouter",  name: "OpenRouter",          color: "#ec4899", ph: "sk-or-...", docs: "https://openrouter.ai/keys",                       models: ["openai/gpt-4o", "anthropic/claude-opus-4", "google/gemini-2.5-pro", "qwen/qwen3-coder-480b-a35b-instruct"], def: "openai/gpt-4o", note: "300+ modèles" },
+  { id: "nvidia_nim",  name: "NVIDIA NIM",          color: "#76b900", ph: "nvapi-...", docs: "https://build.nvidia.com",                          models: ["nvidia/llama-3.3-nemotron-super-49b-v1", "qwen/qwen3-coder-480b-a35b-instruct", "deepseek-ai/deepseek-v4-pro", "meta/llama-3.1-405b-instruct"], def: "nvidia/llama-3.3-nemotron-super-49b-v1", note: "Free tier available" },
+  { id: "opencode_go", name: "OpenCode Go",         color: "#06b6d4", ph: "sk-opencode-...", docs: "https://opencode.ai/zen",                    models: ["kimi-k2.6", "kimi-k2.5", "glm-5.1", "glm-5", "deepseek-v4-pro", "deepseek-v4-flash", "mimo-v2.5", "mimo-v2.5-pro", "minimax-m2.7", "minimax-m2.5", "qwen3.7-max", "qwen3.6-plus", "qwen3.5-plus"], def: "kimi-k2.6", note: "5$/mois - Modèles open source" },
 ] as const;
 
 const CONTROLLER_PROFILES = [
@@ -287,8 +289,40 @@ function MidiSection({ cfg, setCfg }: { cfg: MidiCfg; setCfg: React.Dispatch<Rea
 // ─── Section: LLM ────────────────────────────────────────────────────────────
 function LlmSection({ keys, setKeys }: { keys: LlmKeys; setKeys: React.Dispatch<React.SetStateAction<LlmKeys>> }) {
   const [active, setActive] = useState<string>("openai");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null);
   const provider = LLM_PROVIDERS.find(p => p.id === active)!;
   const configured = LLM_PROVIDERS.filter(p => (keys[p.id]?.key ?? "").length > 0).length;
+
+  const handleTestKey = async () => {
+    const key = keys[provider.id]?.key;
+    const model = keys[provider.id]?.model ?? provider.def;
+    if (!key) {
+      setTestResult({ success: false, message: "Aucune clé API configurée" });
+      return;
+    }
+
+    setTesting(true);
+    setTestResult(null);
+
+    try {
+      const res = await fetch(`${API}/api/settings/test-key`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: provider.id, apiKey: key, model }),
+      });
+      const data = await res.json();
+      setTestResult({
+        success: data.success,
+        message: data.success ? `Connexion réussie (${data.latency}ms)` : data.error || "Échec de la connexion",
+        latency: data.latency,
+      });
+    } catch (e) {
+      setTestResult({ success: false, message: `Erreur: ${e}` });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   return (
     <div className="flex gap-6 min-h-[480px]">
@@ -339,6 +373,36 @@ function LlmSection({ keys, setKeys }: { keys: LlmKeys; setKeys: React.Dispatch<
             {provider.models.map(m => <option key={m} value={m}>{m}</option>)}
           </Select>
         </Field>
+
+        {/* Test Connection Button */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleTestKey}
+            disabled={testing || !keys[provider.id]?.key}
+            className={cls(
+              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+              testing
+                ? "bg-white/5 text-slate-500 cursor-wait"
+                : !keys[provider.id]?.key
+                ? "bg-white/5 text-slate-600 cursor-not-allowed"
+                : "bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/30"
+            )}>
+            {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            {testing ? "Test en cours..." : "Tester la connexion"}
+          </button>
+
+          {testResult && (
+            <div className={cls(
+              "flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg",
+              testResult.success
+                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                : "bg-red-500/10 text-red-400 border border-red-500/20"
+            )}>
+              {testResult.success ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+              <span>{testResult.message}</span>
+            </div>
+          )}
+        </div>
 
         <div className="flex items-start gap-2 text-xs text-slate-500 rounded-lg border border-white/5 bg-white/[0.02] p-3">
           <AlertCircle className="w-4 h-4 text-amber-500/70 shrink-0 mt-0.5" />
@@ -564,6 +628,38 @@ export default function SettingsPage() {
   const [groups, setGroups] = useState<Record<string, GroupCfg>>(() => load("glowlogic_groups", DEFAULT_GROUPS));
   const [ui, setUi] = useState<UiCfg>(() => load("glowlogic_ui", { defaultProvider: "openai", compactMode: false, showTooltips: true }));
   const [backup, setBackup] = useState<BackupCfg>(() => load("glowlogic_backup", { autosave: true, autosaveInterval: 5 }));
+
+  // Load settings from backend on mount
+  useEffect(() => {
+    const loadFromBackend = async () => {
+      try {
+        const res = await fetch(`${API}/api/settings`, { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          const data = await res.json();
+          // Update LLM keys from backend (unmasked)
+          const newKeys: LlmKeys = {};
+          for (const p of LLM_PROVIDERS) {
+            const key = data[`${p.id}_key`];
+            const model = data[`${p.id}_model`];
+            if (key) {
+              newKeys[p.id] = { key, model: model || p.def };
+            }
+          }
+          if (Object.keys(newKeys).length > 0) {
+            setLlmKeys(prev => ({ ...prev, ...newKeys }));
+          }
+          // Update groups from backend
+          if (data.groups_config) {
+            try {
+              const parsed = JSON.parse(data.groups_config);
+              setGroups(prev => ({ ...prev, ...parsed }));
+            } catch {}
+          }
+        }
+      } catch {}
+    };
+    loadFromBackend();
+  }, []);
 
   // Ping backend status
   useEffect(() => {

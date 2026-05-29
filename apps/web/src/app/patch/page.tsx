@@ -3,8 +3,11 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Plus, Trash2, Search, ChevronRight, X, Check, RefreshCw,
-  Crosshair, ArrowLeft, Save, Zap, Edit3, Copy,
+  Crosshair, ArrowLeft, Save, Zap, Edit3, Copy, Camera,
+  Loader2, Wand2, Upload, FileImage, AlertCircle, CheckCircle2,
 } from "lucide-react";
+import AiSuggestButton from "../../components/AiSuggestButton";
+import ImageQualityIndicator from "../../components/ImageQualityIndicator";
 
 const API = "http://localhost:3005";
 
@@ -99,6 +102,16 @@ export default function PatchPage() {
   const [customModeName, setCustomModeName] = useState("");
   const [customProfile, setCustomProfile] = useState<string[]>(["R", "G", "B"]);
   const [dragOver, setDragOver] = useState<number | null>(null);
+
+  // AI Scan state
+  const [scanImage, setScanImage] = useState<string | null>(null);
+  const [scanFile, setScanFile] = useState<File | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState<string>("");
+  const [imageQuality, setImageQuality] = useState<any>(null);
+  const [aiSuggesting, setAiSuggesting] = useState<string | null>(null);
+  const [scanResult, setScanResult] = useState<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Edit in-place
   const [editing, setEditing] = useState(false);
@@ -223,6 +236,124 @@ export default function PatchPage() {
     if (!selected) return;
     await fetch(`${API}/api/patch/${selected.id}/localize`, { method: "POST" });
   }, [selected]);
+
+  // ── AI Functions ──────────────────────────────────────────────
+  const handleImageUpload = useCallback(async (file: File) => {
+    setScanFile(file);
+    setScanning(true);
+    setScanProgress("Vérification de la qualité...");
+    setImageQuality(null);
+    setScanResult(null);
+
+    // Preview
+    const reader = new FileReader();
+    reader.onload = (e) => setScanImage(e.target?.result as string);
+    reader.readAsDataURL(file);
+
+    try {
+      // Step 1: Check image quality
+      const qualityFormData = new FormData();
+      qualityFormData.append("image", file);
+      const qualityRes = await fetch(`${API}/api/fixtures/scan-quality`, {
+        method: "POST",
+        body: qualityFormData,
+      });
+      if (qualityRes.ok) {
+        const qualityData = await qualityRes.json();
+        setImageQuality(qualityData);
+      }
+
+      // Step 2: OCR + LLM scan
+      setScanProgress("Analyse OCR + IA en cours...");
+      const scanFormData = new FormData();
+      scanFormData.append("image", file);
+      const scanRes = await fetch(`${API}/api/fixtures/scan`, {
+        method: "POST",
+        body: scanFormData,
+      });
+
+      if (scanRes.ok) {
+        const data = await scanRes.json();
+        setScanResult(data);
+        setScanProgress(`${data.channels?.length || 0} channels détectés`);
+
+        // Auto-fill form fields
+        if (data.fixtureName) setCustomName(data.fixtureName);
+        if (data.channels?.length > 0) {
+          const profile = data.channels.map((ch: any) => {
+            // Map OCR types to channel names
+            const typeMap: Record<string, string> = {
+              dimmer: "Dim", red: "R", green: "G", blue: "B", white: "W",
+              amber: "Ambre", uv: "UV", pan: "Pan", tilt: "Tilt",
+              pan_fine: "PanFine", tilt_fine: "TiltFine", gobo: "Gobo1",
+              color_wheel: "ColorWheel", strobe: "Strobe", shutter: "Shutter",
+              zoom: "Zoom", focus: "Focus", iris: "Iris", prism: "Prism",
+              speed: "Speed", macro: "Mode", sound: "Mode", reset: "Mode",
+            };
+            return typeMap[ch.type] || ch.function?.substring(0, 3) || "Dim";
+          });
+          setCustomProfile(profile);
+        }
+      }
+    } catch (error) {
+      console.error("Scan error:", error);
+      setScanProgress("Erreur lors du scan");
+    } finally {
+      setScanning(false);
+    }
+  }, []);
+
+  const handleAiSuggest = useCallback(async (field: string) => {
+    setAiSuggesting(field);
+    try {
+      if (field === "name" || field === "type" || field === "profile") {
+        // Suggest from name
+        const res = await fetch(`${API}/api/ai/suggest-fixture`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: customName, currentProfile: customProfile }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.fixture_type) setCustomType(data.fixture_type);
+          if (data.profile?.length > 0) setCustomProfile(data.profile);
+          if (data.mode_name) setCustomModeName(data.mode_name);
+        }
+      } else if (field === "group") {
+        // Suggest group settings
+        const res = await fetch(`${API}/api/ai/suggest-settings`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fixtureType: customType }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          // Group suggestion is handled by the form
+        }
+      }
+    } catch (error) {
+      console.error("AI suggest error:", error);
+    } finally {
+      setAiSuggesting(null);
+    }
+  }, [customName, customType, customProfile]);
+
+  const handleLearnCorrection = useCallback(async () => {
+    if (!customName || !customType) return;
+    try {
+      await fetch(`${API}/api/ai/learn-correction`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          originalName: customName,
+          correctedType: customType,
+          correctedProfile: customProfile,
+        }),
+      });
+    } catch (error) {
+      console.error("Learn correction error:", error);
+    }
+  }, [customName, customType, customProfile]);
 
   // Sorted + filtered list
   const displayed = patch
@@ -601,47 +732,164 @@ export default function PatchPage() {
       {/* ═══ CUSTOM FIXTURE MODAL ═════════════════════════════════ */}
       {showCustom && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center backdrop-blur-sm">
-          <div className="bg-[#12141a] border border-white/10 rounded-2xl shadow-2xl w-[720px] max-h-[85vh] flex flex-col">
+          <div className="bg-[#12141a] border border-white/10 rounded-2xl shadow-2xl w-[800px] max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-5 border-b border-white/5">
-              <h2 className="text-white font-black text-lg">Créer votre fixture</h2>
-              <button onClick={() => setShowCustom(false)} className="text-slate-500 hover:text-white p-1"><X className="w-5 h-5" /></button>
+              <div className="flex items-center gap-3">
+                <h2 className="text-white font-black text-lg">Créer votre fixture</h2>
+                <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 text-[10px] font-bold">
+                  🪄 IA Assistée
+                </span>
+              </div>
+              <button onClick={() => { setShowCustom(false); setScanImage(null); setScanResult(null); setImageQuality(null); }} className="text-slate-500 hover:text-white p-1"><X className="w-5 h-5" /></button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
-              {/* Name + type */}
+              {/* Image Scanner Section */}
+              <div className="bg-gradient-to-r from-cyan-500/5 to-purple-500/5 border border-cyan-500/20 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Camera className="w-4 h-4 text-cyan-400" />
+                  <label className="text-cyan-400 text-xs font-bold uppercase tracking-wider">
+                    Scanner un manuel DMX avec l'IA
+                  </label>
+                </div>
+                
+                {!scanImage ? (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-slate-700 hover:border-cyan-500/50 rounded-xl p-8 text-center cursor-pointer transition"
+                  >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleImageUpload(f);
+                      }}
+                      className="hidden"
+                    />
+                    <Upload className="mx-auto text-slate-500 mb-3" size={32} />
+                    <p className="text-slate-300 text-sm font-medium">
+                      Glissez une photo du manuel ou cliquez
+                    </p>
+                    <p className="text-slate-500 text-xs mt-1">
+                      L'IA analysera automatiquement les channels DMX
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* Image preview */}
+                    <div className="flex gap-4">
+                      <div className="w-48 h-32 rounded-lg overflow-hidden bg-slate-800 shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={scanImage} alt="Scan" className="w-full h-full object-cover" />
+                      </div>
+                      <div className="flex-1 space-y-2">
+                        {/* Quality indicator */}
+                        {imageQuality && (
+                          <ImageQualityIndicator quality={imageQuality} />
+                        )}
+                        {/* Scan progress */}
+                        {scanning && (
+                          <div className="flex items-center gap-2 text-cyan-400">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span className="text-xs">{scanProgress}</span>
+                          </div>
+                        )}
+                        {/* Scan result */}
+                        {scanResult && !scanning && (
+                          <div className="flex items-center gap-2 text-emerald-400">
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span className="text-xs">
+                              {scanResult.channels?.length || 0} channels détectés 
+                              (confiance: {scanResult.confidence?.toFixed(0)}%)
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {/* Rescan button */}
+                    <button
+                      onClick={() => { setScanImage(null); setScanResult(null); setImageQuality(null); }}
+                      className="text-xs text-slate-400 hover:text-white transition"
+                    >
+                      📷 Scanner une autre image
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Name + type with AI buttons */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">Marque et modèle *</label>
-                  <input
-                    value={customName}
-                    onChange={(e) => setCustomName(e.target.value)}
-                    placeholder="Ex : Chauvet SlimPAR Pro H..."
-                    className="w-full bg-[#0a0c10] border border-slate-700 focus:border-cyan-500 rounded px-3 py-2 text-sm text-white outline-none"
-                  />
+                  <label className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                    Marque et modèle *
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      value={customName}
+                      onChange={(e) => setCustomName(e.target.value)}
+                      placeholder="Ex : Chauvet SlimPAR Pro H..."
+                      className="flex-1 bg-[#0a0c10] border border-slate-700 focus:border-cyan-500 rounded px-3 py-2 text-sm text-white outline-none"
+                    />
+                    <AiSuggestButton
+                      onClick={() => handleAiSuggest("name")}
+                      loading={aiSuggesting === "name"}
+                      tooltip="L'IA détecte le type et le profil à partir du nom"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">Type</label>
-                  <select value={customType} onChange={(e) => setCustomType(e.target.value)}
-                    className="w-full bg-[#0a0c10] border border-slate-700 focus:border-cyan-500 rounded px-3 py-2 text-sm text-white outline-none">
-                    {["PAR LED","Moving Head","Effet","Stroboscope","Dimmer","Barre LED","Laser","Pixel Bar"].map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
+                  <label className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                    Type
+                  </label>
+                  <div className="flex gap-2">
+                    <select value={customType} onChange={(e) => setCustomType(e.target.value)}
+                      className="flex-1 bg-[#0a0c10] border border-slate-700 focus:border-cyan-500 rounded px-3 py-2 text-sm text-white outline-none">
+                      {["PAR LED","Moving Head","Effet","Stroboscope","Dimmer","Barre LED","Laser","Pixel Bar"].map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                    <AiSuggestButton
+                      onClick={() => handleAiSuggest("type")}
+                      loading={aiSuggesting === "type"}
+                      tooltip="L'IA suggère le type basé sur le nom"
+                    />
+                  </div>
                 </div>
               </div>
 
               <div>
-                <label className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">Nom du mode / protocole</label>
-                <input value={customModeName} onChange={(e) => setCustomModeName(e.target.value)}
-                  placeholder="Ex : Mode 8ch, Standard, Extended..."
-                  className="w-full bg-[#0a0c10] border border-slate-700 focus:border-cyan-500 rounded px-3 py-2 text-sm text-white outline-none" />
+                <label className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                  Nom du mode / protocole
+                </label>
+                <div className="flex gap-2">
+                  <input value={customModeName} onChange={(e) => setCustomModeName(e.target.value)}
+                    placeholder="Ex : Mode 8ch, Standard, Extended..."
+                    className="flex-1 bg-[#0a0c10] border border-slate-700 focus:border-cyan-500 rounded px-3 py-2 text-sm text-white outline-none" />
+                  <AiSuggestButton
+                    onClick={() => handleAiSuggest("profile")}
+                    loading={aiSuggesting === "profile"}
+                    tooltip="L'IA suggère le profil DMX complet"
+                  />
+                </div>
               </div>
 
               {/* Profile presets */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-slate-400 text-xs font-bold uppercase tracking-wider">Profil DMX — {customProfile.length} canaux</label>
-                  <span className="text-slate-600 text-xs">Glisser pour réordonner · clic pour retirer</span>
+                  <label className="text-slate-400 text-xs font-bold uppercase tracking-wider">
+                    Profil DMX — {customProfile.length} canaux
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-600 text-xs">Glisser pour réordonner · clic pour retirer</span>
+                    <AiSuggestButton
+                      onClick={() => handleAiSuggest("profile")}
+                      loading={aiSuggesting === "profile"}
+                      size="md"
+                      tooltip="L'IA suggère les canaux appropriés"
+                    />
+                  </div>
                 </div>
                 <div className="text-slate-500 text-xs mb-2">Démarrer avec un profil :</div>
                 <div className="flex flex-wrap gap-1.5 mb-3">
@@ -697,14 +945,15 @@ export default function PatchPage() {
             </div>
 
             <div className="flex gap-3 p-5 border-t border-white/5">
-              <button onClick={() => setShowCustom(false)} className="flex-1 py-2.5 rounded-xl border border-white/10 text-slate-400 hover:bg-white/5 font-bold transition text-sm">
+              <button onClick={() => { setShowCustom(false); setScanImage(null); setScanResult(null); }} className="flex-1 py-2.5 rounded-xl border border-white/10 text-slate-400 hover:bg-white/5 font-bold transition text-sm">
                 Annuler
               </button>
               <button
-                onClick={addCustomFixture}
+                onClick={() => { handleLearnCorrection(); addCustomFixture(); }}
                 disabled={!customName.trim() || customProfile.length === 0}
-                className="flex-1 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 disabled:cursor-not-allowed text-black font-black transition text-sm"
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-500 hover:from-cyan-400 hover:to-purple-400 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-black transition text-sm flex items-center justify-center gap-2"
               >
+                <Wand2 className="w-4 h-4" />
                 Enregistrer la fixture
               </button>
             </div>

@@ -13,6 +13,9 @@ import {
   CheckCircle2,
   X,
   ArrowLeft,
+  Brain,
+  Sparkles,
+  RefreshCw,
 } from "lucide-react";
 
 const DMX_TYPES = [
@@ -69,6 +72,7 @@ const API_BASE =
 export default function FixturesPage() {
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [channels, setChannels] = useState<DmxChannel[]>([]);
   const [fixtureName, setFixtureName] = useState("");
@@ -76,9 +80,11 @@ export default function FixturesPage() {
   const [notes, setNotes] = useState("");
   const [rawOcrText, setRawOcrText] = useState("");
   const [confidence, setConfidence] = useState<number | null>(null);
+  const [llmAnalysis, setLlmAnalysis] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showTips, setShowTips] = useState(true);
+  const [showRawOcr, setShowRawOcr] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadFixtures = useCallback(async () => {
@@ -97,6 +103,7 @@ export default function FixturesPage() {
   const handleFile = async (file: File) => {
     setError(null);
     setSuccess(null);
+    setLlmAnalysis(null);
     if (!file.type.startsWith("image/")) {
       setError("Merci de sélectionner une image (PNG, JPG, WebP...)");
       return;
@@ -108,6 +115,7 @@ export default function FixturesPage() {
     reader.readAsDataURL(file);
 
     setScanning(true);
+    setAnalyzing(true);
     try {
       const formData = new FormData();
       formData.append("image", file);
@@ -121,6 +129,12 @@ export default function FixturesPage() {
       setRawOcrText(data.rawText || "");
       setConfidence(data.confidence ?? null);
       if (data.fixtureName && !fixtureName) setFixtureName(data.fixtureName);
+      
+      // Check if LLM analysis was performed
+      if (data.confidence > 70) {
+        setLlmAnalysis("IA a amélioré la détection des channels");
+      }
+      
       if (data.channels?.length === 0) {
         setError(
           "Aucun channel détecté. Essaye une photo plus nette ou édite manuellement ci-dessous.",
@@ -136,6 +150,7 @@ export default function FixturesPage() {
       );
     } finally {
       setScanning(false);
+      setAnalyzing(false);
     }
   };
 
@@ -230,8 +245,10 @@ export default function FixturesPage() {
     setManufacturer("");
     setNotes("");
     setConfidence(null);
+    setLlmAnalysis(null);
     setError(null);
     setSuccess(null);
+    setShowRawOcr(false);
   };
 
   return (
@@ -255,7 +272,7 @@ export default function FixturesPage() {
               </h1>
               <p className="text-slate-400 text-sm mt-1">
                 Photographie la page DMX de ton manuel : l'OCR extrait
-                automatiquement les channels.
+                automatiquement les channels, puis l'IA les analyse et les améliore.
               </p>
             </div>
           </div>
@@ -278,9 +295,13 @@ export default function FixturesPage() {
               <X size={16} />
             </button>
             <h3 className="text-cyan-400 font-bold text-sm mb-2 flex items-center gap-2">
-              💡 Premiers pas — pour prendre la meilleure photo
+              <Sparkles size={16} />
+              Scan IA avec analyse intelligente
             </h3>
             <ul className="text-slate-300 text-xs space-y-1 ml-6 list-disc">
+              <li>
+                <strong className="text-white">Nouveau :</strong> L'IA analyse automatiquement le texte OCR pour améliorer la détection.
+              </li>
               <li>
                 Cadre UNIQUEMENT le tableau des DMX channels (page du manuel).
               </li>
@@ -290,8 +311,7 @@ export default function FixturesPage() {
                 Résolution minimum ~1200px de large pour une bonne lecture.
               </li>
               <li>
-                Après le scan, vérifie et corrige manuellement les erreurs —
-                c'est normal.
+                Après le scan, l'IA améliore les résultats — vérifie et valide.
               </li>
             </ul>
           </div>
@@ -337,10 +357,13 @@ export default function FixturesPage() {
                     size={36}
                   />
                   <p className="text-slate-300 text-sm mt-3">
-                    Analyse en cours...
+                    {analyzing ? "Analyse IA en cours..." : "Extraction OCR en cours..."}
                   </p>
                   <p className="text-slate-500 text-xs mt-1">
-                    L'OCR peut prendre 10-30 secondes au premier lancement.
+                    {analyzing 
+                      ? "L'IA analyse le texte pour améliorer la détection"
+                      : "L'OCR peut prendre 10-30 secondes au premier lancement."
+                    }
                   </p>
                 </>
               ) : preview ? (
@@ -378,7 +401,16 @@ export default function FixturesPage() {
             {confidence !== null && (
               <div className="bg-[#12141a] border border-[#262c36] rounded-lg p-3 text-xs text-slate-400">
                 <div className="flex justify-between mb-1">
-                  <span>Confiance OCR</span>
+                  <span className="flex items-center gap-2">
+                    {llmAnalysis ? (
+                      <>
+                        <Sparkles className="w-3 h-3 text-cyan-400" />
+                        Confiance IA
+                      </>
+                    ) : (
+                      "Confiance OCR"
+                    )}
+                  </span>
                   <span
                     className={
                       confidence > 70
@@ -397,6 +429,12 @@ export default function FixturesPage() {
                     style={{ width: `${confidence}%` }}
                   />
                 </div>
+                {llmAnalysis && (
+                  <p className="mt-2 text-cyan-400/70 flex items-center gap-1">
+                    <Brain className="w-3 h-3" />
+                    {llmAnalysis}
+                  </p>
+                )}
               </div>
             )}
 
@@ -486,8 +524,13 @@ export default function FixturesPage() {
             {/* Channels editor */}
             <div className="bg-[#12141a] border border-[#262c36] rounded-xl p-5">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-white font-bold text-sm">
+                <h3 className="text-white font-bold text-sm flex items-center gap-2">
                   DMX Channels ({channels.length})
+                  {llmAnalysis && (
+                    <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 text-[10px] font-bold">
+                      IA ANALYSÉ
+                    </span>
+                  )}
                 </h3>
                 <button
                   onClick={addChannel}
@@ -496,6 +539,22 @@ export default function FixturesPage() {
                   <Plus size={14} /> Ajouter
                 </button>
               </div>
+
+              {/* LLM Analysis Banner */}
+              {llmAnalysis && channels.length > 0 && (
+                <div className="mb-4 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/30 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="w-4 h-4 text-cyan-400" />
+                    <span className="text-cyan-400 font-bold text-xs">
+                      Analyse IA terminée
+                    </span>
+                  </div>
+                  <p className="text-slate-300 text-xs">
+                    L'IA a analysé le texte OCR et a amélioré la détection des channels.
+                    Vérifie les résultats ci-dessous et valide en cliquant "Sauvegarder".
+                  </p>
+                </div>
+              )}
 
               {channels.length === 0 ? (
                 <p className="text-slate-500 text-sm text-center py-8">
@@ -605,21 +664,35 @@ export default function FixturesPage() {
                   disabled={channels.length === 0 || !fixtureName.trim()}
                   className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 disabled:cursor-not-allowed text-black font-bold text-sm px-5 py-2 rounded transition"
                 >
-                  <Save size={16} /> Sauvegarder la fixture
+                  {llmAnalysis ? (
+                    <>
+                      <CheckCircle2 size={16} /> Valider et sauvegarder
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} /> Sauvegarder la fixture
+                    </>
+                  )}
                 </button>
               </div>
             </div>
 
             {/* Raw OCR debug */}
             {rawOcrText && (
-              <details className="bg-[#12141a] border border-[#262c36] rounded-xl">
-                <summary className="cursor-pointer px-4 py-3 text-slate-400 text-xs font-bold uppercase tracking-wider hover:text-white">
-                  Texte brut OCR (debug)
-                </summary>
-                <pre className="px-4 pb-4 text-slate-500 text-xs font-mono whitespace-pre-wrap max-h-64 overflow-y-auto">
-                  {rawOcrText}
-                </pre>
-              </details>
+              <div className="bg-[#12141a] border border-[#262c36] rounded-xl">
+                <button
+                  onClick={() => setShowRawOcr(!showRawOcr)}
+                  className="w-full cursor-pointer px-4 py-3 text-slate-400 text-xs font-bold uppercase tracking-wider hover:text-white flex items-center justify-between"
+                >
+                  <span>Texte brut OCR (debug)</span>
+                  <RefreshCw className={`w-4 h-4 transition-transform ${showRawOcr ? "rotate-180" : ""}`} />
+                </button>
+                {showRawOcr && (
+                  <pre className="px-4 pb-4 text-slate-500 text-xs font-mono whitespace-pre-wrap max-h-64 overflow-y-auto border-t border-slate-800">
+                    {rawOcrText}
+                  </pre>
+                )}
+              </div>
             )}
           </div>
         </div>

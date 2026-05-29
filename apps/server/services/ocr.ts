@@ -1,6 +1,158 @@
 import { createWorker } from "tesseract.js";
 
 /**
+ * Vérification de qualité d'image pour le scan OCR
+ */
+export interface ImageQuality {
+  score: number;        // 0-100
+  isBlurry: boolean;
+  isTooDark: boolean;
+  isTooLight: boolean;
+  isAngled: boolean;
+  resolution: { width: number; height: number };
+  suggestions: string[];
+}
+
+/**
+ * Vérifie la qualité d'une image avant le scan OCR
+ * Analyse : netteté, luminosité, résolution
+ */
+export async function checkImageQuality(imageBuffer: Buffer): Promise<ImageQuality> {
+  const suggestions: string[] = [];
+  let score = 100;
+  
+  // Créer un canvas pour analyser l'image
+  const uint8Array = new Uint8Array(imageBuffer);
+  const blob = new Blob([uint8Array]);
+  const bitmap = await createImageBitmap(blob);
+  const width = bitmap.width;
+  const height = bitmap.height;
+  
+  // 1. Vérifier la résolution
+  const resolution = { width, height };
+  if (width < 800 || height < 600) {
+    score -= 30;
+    suggestions.push("Résolution trop basse. Utilisez une image d'au moins 1200px de large.");
+  } else if (width < 1200) {
+    score -= 10;
+    suggestions.push("Résolution moyenne. Une image plus nette améliorerait la détection.");
+  }
+  
+  // 2. Analyser la luminosité et la netteté via un canvas temporaire
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(bitmap, 0, 0);
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  
+  // Calculer la luminosité moyenne
+  let totalBrightness = 0;
+  let pixelCount = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const brightness = (r * 0.299 + g * 0.587 + b * 0.114);
+    totalBrightness += brightness;
+    pixelCount++;
+  }
+  const avgBrightness = totalBrightness / pixelCount;
+  
+  // Vérifier la luminosité
+  const isTooDark = avgBrightness < 80;
+  const isTooLight = avgBrightness > 200;
+  
+  if (isTooDark) {
+    score -= 25;
+    suggestions.push("Image trop sombre. Améliorez l'éclairage ou augmentez la luminosité.");
+  } else if (isTooLight) {
+    score -= 20;
+    suggestions.push("Image trop claire. Réduisez la luminosité ou évitez les reflets.");
+  }
+  
+  // 3. Estimer la netteté (variance du Laplacien simplifié)
+  let laplacianVariance = 0;
+  const grayValues: number[] = [];
+  
+  for (let y = 1; y < height - 1; y += 2) {
+    for (let x = 1; x < width - 1; x += 2) {
+      const idx = (y * width + x) * 4;
+      const center = data[idx];
+      const top = data[((y - 1) * width + x) * 4];
+      const bottom = data[((y + 1) * width + x) * 4];
+      const left = data[(y * width + (x - 1)) * 4];
+      const right = data[(y * width + (x + 1)) * 4];
+      
+      // Laplacien simplifié
+      const laplacian = Math.abs(-4 * center + top + bottom + left + right);
+      grayValues.push(laplacian);
+    }
+  }
+  
+  // Calculer la variance
+  if (grayValues.length > 0) {
+    const mean = grayValues.reduce((a, b) => a + b, 0) / grayValues.length;
+    laplacianVariance = grayValues.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / grayValues.length;
+  }
+  
+  const isBlurry = laplacianVariance < 100;
+  if (isBlurry) {
+    score -= 30;
+    suggestions.push("Image floue. Prenez une photo plus nette ou stabilisez l'appareil.");
+  }
+  
+  // 4. Détecter l'angle (simplifié - on vérifie si les bords sont droits)
+  // Pour une détection complète, on utiliserait la transformée de Hough
+  // Ici on fait une estimation basée sur la distribution des pixels sombres
+  let topDarkPixels = 0;
+  let bottomDarkPixels = 0;
+  const threshold = 128;
+  
+  for (let y = 0; y < height / 4; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const brightness = (data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114);
+      if (brightness < threshold) topDarkPixels++;
+    }
+  }
+  
+  for (let y = Math.floor(height * 3 / 4); y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const brightness = (data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114);
+      if (brightness < threshold) bottomDarkPixels++;
+    }
+  }
+  
+  // Si la différence est trop grande, l'image est probablement inclinée
+  const darkRatio = Math.abs(topDarkPixels - bottomDarkPixels) / Math.max(topDarkPixels, bottomDarkPixels, 1);
+  const isAngled = darkRatio > 0.5;
+  
+  if (isAngled) {
+    score -= 15;
+    suggestions.push("Image possiblement inclinée. Essayez de prendre la photo de face.");
+  }
+  
+  // Limiter le score entre 0 et 100
+  score = Math.max(0, Math.min(100, score));
+  
+  // Si pas de suggestions, ajouter un message positique
+  if (suggestions.length === 0) {
+    suggestions.push("Image de bonne qualité. Le scan devrait bien fonctionner.");
+  }
+  
+  return {
+    score,
+    isBlurry,
+    isTooDark,
+    isTooLight,
+    isAngled,
+    resolution,
+    suggestions,
+  };
+}
+
+/**
  * Représentation d'un channel DMX extrait depuis une photo de manuel.
  */
 export interface DmxChannel {

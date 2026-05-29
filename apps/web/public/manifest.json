@@ -1,0 +1,53 @@
+{
+  "name": "Glow Logic - Smart Stage OS",
+  "short_name": "Glow Logic",
+  "description": "Système de contrôle d'éclairage DMX No-Code pour spectacles live",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0c10",
+  "theme_color": "#06b6d4",
+  "orientation": "any",
+  "scope": "/",
+  "lang": "fr",
+  "categories": ["entertainment", "utilities", "music"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Smart Mode",
+      "short_name": "Smart",
+      "url": "/smart",
+      "description": "Mode dashboard avec sliders"
+    },
+    {
+      "name": "Live Mode",
+      "short_name": "Live",
+      "url": "/live",
+      "description": "Mode performance live"
+    },
+    {
+      "name": "IA Lighting",
+      "short_name": "IA",
+      "url": "/ai-lighting",
+      "description": "Contrôle d'éclairage par IA"
+    },
+    {
+      "name": "DMX Patch",
+      "short_name": "Patch",
+      "url": "/patch",
+      "description": "Gestion du patch DMX"
+    }
+  ]
+}

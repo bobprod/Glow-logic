@@ -2,6 +2,8 @@ import express from "express";
 import multer from "multer";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import path from "path";
+import fs from "fs";
 import {
   sendDmxValue,
   triggerScene,
@@ -10,6 +12,14 @@ import {
   setBpm,
 } from "./services/qlc";
 import { sendArtNetValue } from "./services/artnet";
+
+// Ensure data directory exists on startup
+const DATA_DIR = path.resolve(__dirname, "../data");
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  console.log("📁 Created data directory:", DATA_DIR);
+}
+
 import {
   saveProject,
   getProjects,
@@ -28,8 +38,6 @@ import {
   deletePatchFixture,
   getNextAddress,
 } from "./services/database";
-import path from "path";
-import fs from "fs";
 import { scanDmxManual } from "./services/ocr";
 
 const app = express();
@@ -93,6 +101,225 @@ app.post("/api/settings", (req, res) => {
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: "Erreur sauvegarde settings" });
+  }
+});
+
+// ── REST API — Test LLM API Key ─────────────────────────────
+app.post("/api/settings/test-key", async (req, res) => {
+  try {
+    const { provider, apiKey, model } = req.body;
+    if (!provider || !apiKey) {
+      return res.status(400).json({ error: "provider et apiKey requis" });
+    }
+
+    const startTime = Date.now();
+    let baseUrl = "";
+    let headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    };
+    let body: any = {};
+
+    // Configure provider-specific settings
+    switch (provider) {
+      case "openai":
+        baseUrl = "https://api.openai.com/v1/chat/completions";
+        body = { model: model || "gpt-4o-mini", messages: [{ role: "user", content: "Say 'OK'" }], max_tokens: 5 };
+        break;
+      case "anthropic":
+        baseUrl = "https://api.anthropic.com/v1/messages";
+        headers["x-api-key"] = apiKey;
+        headers["anthropic-version"] = "2023-06-01";
+        delete headers["Authorization"];
+        body = { model: model || "claude-sonnet-4-20250514", messages: [{ role: "user", content: "Say 'OK'" }], max_tokens: 5 };
+        break;
+      case "gemini":
+        baseUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-1.5-flash"}:generateContent?key=${apiKey}`;
+        body = { contents: [{ parts: [{ text: "Say 'OK'" }] }] };
+        break;
+      case "deepseek":
+        baseUrl = "https://api.deepseek.com/v1/chat/completions";
+        body = { model: model || "deepseek-chat", messages: [{ role: "user", content: "Say 'OK'" }], max_tokens: 5 };
+        break;
+      case "openrouter":
+        baseUrl = "https://openrouter.ai/api/v1/chat/completions";
+        body = { model: model || "openai/gpt-4o-mini", messages: [{ role: "user", content: "Say 'OK'" }], max_tokens: 5 };
+        break;
+      case "nvidia_nim":
+        baseUrl = "https://integrate.api.nvidia.com/v1/chat/completions";
+        body = { model: model || "nvidia/llama-3.3-nemotron-super-49b-v1", messages: [{ role: "user", content: "Say 'OK'" }], max_tokens: 5 };
+        break;
+      case "opencode_go":
+        // OpenCode Go - Two endpoints based on model type
+        // OpenAI-compatible: kimi, glm, deepseek, mimo
+        // Anthropic-compatible: minimax, qwen
+        const openaiCompatibleModels = ["kimi-k2.5", "kimi-k2.6", "glm-5", "glm-5.1", "deepseek-v4-pro", "deepseek-v4-flash", "mimo-v2.5", "mimo-v2.5-pro"];
+        const selectedModel = model || "kimi-k2.6";
+        
+        if (openaiCompatibleModels.includes(selectedModel)) {
+          // OpenAI-compatible endpoint
+          baseUrl = "https://opencode.ai/zen/go/v1/chat/completions";
+          body = { model: selectedModel, messages: [{ role: "user", content: "Say 'OK'" }], max_tokens: 5 };
+        } else {
+          // Anthropic-compatible endpoint (minimax, qwen)
+          baseUrl = "https://opencode.ai/zen/go/v1/messages";
+          headers["x-api-key"] = apiKey;
+          headers["anthropic-version"] = "2023-06-01";
+          delete headers["Authorization"];
+          body = { model: selectedModel, messages: [{ role: "user", content: "Say 'OK'" }], max_tokens: 5 };
+        }
+        break;
+      default:
+        return res.status(400).json({ error: `Fournisseur inconnu: ${provider}` });
+    }
+
+    const response = await fetch(baseUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    const latency = Date.now() - startTime;
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.json({
+        success: false,
+        error: `HTTP ${response.status}: ${errorText.slice(0, 200)}`,
+        latency,
+      });
+    }
+
+    const data = await response.json();
+    res.json({ success: true, latency, model: data.model || model });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// ── REST API — Chat Assistant ──────────────────────────────
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { messages } = req.body;
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: "messages array required" });
+    }
+
+    // Get LLM settings from database
+    const settings = getAllSettings();
+    
+    // Find first configured provider
+    const providers = ["opencode_go", "openrouter", "nvidia_nim", "openai", "anthropic", "gemini", "deepseek"];
+    let selectedProvider = null;
+    let apiKey = null;
+    let model = null;
+
+    for (const provider of providers) {
+      const key = settings[`${provider}_key`];
+      if (key) {
+        selectedProvider = provider;
+        apiKey = key;
+        model = settings[`${provider}_model`];
+        break;
+      }
+    }
+
+    if (!apiKey) {
+      return res.status(400).json({ 
+        error: "Aucune clé API configurée. Va dans /settings → IA & LLM pour en ajouter une." 
+      });
+    }
+
+    // Configure provider
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    };
+
+    let baseUrl = "";
+    let body: any = {};
+
+    const defaultModels: Record<string, string> = {
+      opencode_go: "kimi-k2.6",
+      openrouter: "openai/gpt-4o-mini",
+      nvidia_nim: "nvidia/llama-3.3-nemotron-super-49b-v1",
+      openai: "gpt-4o-mini",
+      anthropic: "claude-sonnet-4-20250514",
+      gemini: "gemini-1.5-flash",
+      deepseek: "deepseek-chat",
+    };
+
+    const selectedModel = model || defaultModels[selectedProvider || ""] || "gpt-4o-mini";
+
+    switch (selectedProvider) {
+      case "opencode_go": {
+        const openaiModels = ["kimi-k2.6", "kimi-k2.5", "glm-5.1", "glm-5", "deepseek-v4-pro", "deepseek-v4-flash", "mimo-v2.5", "mimo-v2.5-pro"];
+        if (openaiModels.includes(selectedModel)) {
+          baseUrl = "https://opencode.ai/zen/go/v1/chat/completions";
+          body = { model: selectedModel, messages, max_tokens: 1000, temperature: 0.7 };
+        } else {
+          baseUrl = "https://opencode.ai/zen/go/v1/messages";
+          headers["x-api-key"] = apiKey;
+          headers["anthropic-version"] = "2023-06-01";
+          delete headers["Authorization"];
+          body = { model: selectedModel, messages, max_tokens: 1000 };
+        }
+        break;
+      }
+      case "openrouter":
+        baseUrl = "https://openrouter.ai/api/v1/chat/completions";
+        body = { model: selectedModel, messages, max_tokens: 1000, temperature: 0.7 };
+        break;
+      case "nvidia_nim":
+        baseUrl = "https://integrate.api.nvidia.com/v1/chat/completions";
+        body = { model: selectedModel, messages, max_tokens: 1000, temperature: 0.7 };
+        break;
+      case "openai":
+        baseUrl = "https://api.openai.com/v1/chat/completions";
+        body = { model: selectedModel, messages, max_tokens: 1000, temperature: 0.7 };
+        break;
+      case "anthropic":
+        baseUrl = "https://api.anthropic.com/v1/messages";
+        headers["x-api-key"] = apiKey;
+        headers["anthropic-version"] = "2023-06-01";
+        delete headers["Authorization"];
+        body = { model: selectedModel, messages, max_tokens: 1000 };
+        break;
+      case "gemini":
+        baseUrl = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`;
+        body = { contents: [{ parts: [{ text: messages[messages.length - 1]?.content || "" }] }] };
+        break;
+      case "deepseek":
+        baseUrl = "https://api.deepseek.com/v1/chat/completions";
+        body = { model: selectedModel, messages, max_tokens: 1000, temperature: 0.7 };
+        break;
+    }
+
+    const response = await fetch(baseUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(500).json({ error: `LLM error: ${response.status}` });
+    }
+
+    const data = await response.json();
+    
+    // Extract response based on provider
+    let assistantResponse = "";
+    if (selectedProvider === "anthropic") {
+      assistantResponse = data.content?.[0]?.text || "";
+    } else {
+      assistantResponse = data.choices?.[0]?.message?.content || "";
+    }
+
+    res.json({ response: assistantResponse });
+  } catch (error) {
+    console.error("[Chat] Error:", error);
+    res.status(500).json({ error: String(error) });
   }
 });
 
@@ -197,16 +424,116 @@ app.post("/api/fixtures/scan", upload.single("image"), async (req, res) => {
     console.log(
       `🔍 [OCR] Scan d'une image (${(req.file.size / 1024).toFixed(1)} Ko)...`,
     );
-    const result = await scanDmxManual(req.file.buffer);
+    
+    // Step 1: OCR extraction
+    const ocrResult = await scanDmxManual(req.file.buffer);
     console.log(
-      `✅ [OCR] ${result.totalChannels} channels extraits (confiance ${result.confidence.toFixed(1)}%)`,
+      `📝 [OCR] ${ocrResult.totalChannels} channels extraits (confiance OCR: ${ocrResult.confidence.toFixed(1)}%)`,
     );
-    res.json(result);
+    
+    // Step 2: LLM analysis to improve results
+    let finalResult = ocrResult;
+    try {
+      const { analyzeFixtureWithLlm } = await import("./services/llm-fixture");
+      finalResult = await analyzeFixtureWithLlm(
+        ocrResult.rawText,
+        ocrResult.channels,
+        ocrResult.confidence
+      );
+      console.log(
+        `🤖 [LLM] Analyse terminée - ${finalResult.totalChannels} channels (confiance finale: ${finalResult.confidence.toFixed(1)}%)`,
+      );
+    } catch (llmError) {
+      console.warn("[LLM] Analyse indisponible, utilisation des résultats OCR:", llmError);
+    }
+    
+    res.json(finalResult);
   } catch (error) {
     console.error("[OCR] error:", error);
     res
       .status(500)
       .json({ error: "Erreur lors du scan OCR", detail: String(error) });
+  }
+});
+
+// ── REST API — AI Fixture Suggestions ─────────────────────────
+app.post("/api/ai/suggest-fixture", async (req, res) => {
+  try {
+    const { name, currentProfile } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: "name requis" });
+    }
+    
+    const { suggestFixtureFromName } = await import("./services/llm-fixture");
+    const result = await suggestFixtureFromName(name, currentProfile);
+    res.json(result);
+  } catch (error) {
+    console.error("[AI] suggest-fixture error:", error);
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+app.post("/api/ai/match-library", async (req, res) => {
+  try {
+    const { name, channels } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: "name requis" });
+    }
+    
+    const { matchWithLibrary } = await import("./services/llm-fixture");
+    const result = await matchWithLibrary(name, channels || []);
+    res.json({ match: result });
+  } catch (error) {
+    console.error("[AI] match-library error:", error);
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+app.post("/api/ai/suggest-settings", async (req, res) => {
+  try {
+    const { fixtureType } = req.body;
+    if (!fixtureType) {
+      return res.status(400).json({ error: "fixtureType requis" });
+    }
+    
+    const patch = getPatch();
+    const { suggestFixtureSettings } = await import("./services/llm-fixture");
+    const result = await suggestFixtureSettings(fixtureType, patch);
+    res.json(result);
+  } catch (error) {
+    console.error("[AI] suggest-settings error:", error);
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+app.post("/api/ai/learn-correction", async (req, res) => {
+  try {
+    const { originalName, correctedType, correctedProfile } = req.body;
+    if (!originalName || !correctedType) {
+      return res.status(400).json({ error: "originalName et correctedType requis" });
+    }
+    
+    const { learnFromCorrection } = await import("./services/llm-fixture");
+    await learnFromCorrection(originalName, correctedType, correctedProfile || []);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[AI] learn-correction error:", error);
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+app.post("/api/fixtures/scan-quality", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "image requise" });
+    }
+    
+    const { checkImageQuality } = await import("./services/ocr.js");
+    const result = await checkImageQuality(req.file.buffer);
+    res.json(result);
+  } catch (error) {
+    console.error("[OCR] quality check error:", error);
+    res.status(500).json({ error: String(error) });
   }
 });
 
@@ -217,6 +544,11 @@ let _fixtureLibrary: any[] | null = null;
 function loadLibrary(): any[] {
   if (!_fixtureLibrary) {
     try {
+      // Ensure the file exists
+      if (!fs.existsSync(LIBRARY_PATH)) {
+        fs.writeFileSync(LIBRARY_PATH, "[]", "utf-8");
+        console.log("📁 Created empty fixtures library:", LIBRARY_PATH);
+      }
       _fixtureLibrary = JSON.parse(fs.readFileSync(LIBRARY_PATH, "utf-8"));
     } catch {
       _fixtureLibrary = [];
@@ -322,6 +654,110 @@ app.get("/api/serial-ports", async (_req, res) => {
     })));
   } catch {
     res.json([]);
+  }
+});
+
+// ── REST API — ACP Agents ────────────────────────────────────
+// Agent states
+app.get("/api/agents", (_req, res) => {
+  try {
+    // Return mock agent states for now
+    const agents = [
+      {
+        id: "agent-audio-lighting",
+        name: "Agent Audio/Lumière",
+        description: "Analyse le spectre audio et génère des réponses d'éclairage",
+        status: "idle",
+        capabilities: ["audio-analysis", "frequency-to-color", "bpm-detection"],
+      },
+      {
+        id: "agent-scenographer",
+        name: "Agent Scénographe",
+        description: "Génère des suggestions de scènes d'éclairage",
+        status: "idle",
+        capabilities: ["scene-generation", "mood-analysis", "context-aware"],
+      },
+      {
+        id: "agent-diagnostics",
+        name: "Agent Diagnostique",
+        description: "Surveille et diagnostique les problèmes d'éclairage DMX",
+        status: "idle",
+        capabilities: ["dmx-monitoring", "fixture-detection", "issue-alerting"],
+      },
+      {
+        id: "agent-learning",
+        name: "Agent Apprentissage",
+        description: "Apprend les préférences utilisateur et suggère des améliorations",
+        status: "idle",
+        capabilities: ["preference-learning", "pattern-detection", "personalized-suggestions"],
+      },
+    ];
+    res.json(agents);
+  } catch {
+    res.status(500).json({ error: "Erreur lecture agents" });
+  }
+});
+
+// Agent actions
+app.post("/api/agents/:id/action", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, payload } = req.body;
+    
+    // Mock agent action
+    console.log(`[ACP] Agent ${id} action: ${action}`, payload);
+    
+    res.json({
+      success: true,
+      agentId: id,
+      action,
+      result: { message: `Action ${action} executed on ${id}` },
+    });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// Orchestrator
+app.post("/api/orchestrator/orchestrate", async (req, res) => {
+  try {
+    const { context } = req.body;
+    console.log("[ACP] Orchestration requested:", context);
+    
+    // Mock orchestration
+    res.json({
+      success: true,
+      suggestion: {
+        agentId: "orchestrator",
+        confidence: 0.85,
+        groups: {
+          A: { intensity: 80, color: "#ff0000" },
+          B: { intensity: 60, color: "#00ff00" },
+          C: { intensity: 70, color: "#0000ff" },
+          D: { intensity: 50, color: "#ffff00" },
+        },
+        reasoning: "Orchestration based on audio analysis",
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// Diagnostics
+app.get("/api/diagnostics", async (_req, res) => {
+  try {
+    // Mock diagnostics report
+    const report = {
+      timestamp: new Date().toISOString(),
+      overallStatus: "healthy",
+      fixtures: [],
+      alerts: [],
+      recommendations: ["All systems operating normally"],
+    };
+    res.json(report);
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
   }
 });
 
