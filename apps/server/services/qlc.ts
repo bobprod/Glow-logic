@@ -9,8 +9,9 @@ import osc from 'osc';
 
 const QLC_HOST = '127.0.0.1';
 const QLC_PORT = 7700; // Port OSC standard QLC+
+const qlcOscDisabled = process.env.NODE_ENV === 'test';
 
-const udpPort = new osc.UDPPort({
+const udpPort = qlcOscDisabled ? null : new osc.UDPPort({
     localAddress: '0.0.0.0',
     localPort: 57121, // Port local d'écoute (standard OSC client)
     remoteAddress: QLC_HOST,
@@ -18,6 +19,7 @@ const udpPort = new osc.UDPPort({
     metadata: true,
 });
 
+if (udpPort) {
 udpPort.open();
 udpPort.on('ready', () => {
     console.log(`✅ [QLC+] OSC Bridge ouvert — envoi vers ${QLC_HOST}:${QLC_PORT}`);
@@ -25,6 +27,12 @@ udpPort.on('ready', () => {
 udpPort.on('error', (err: Error) => {
     console.error('❌ [QLC+] Erreur OSC UDP:', err.message);
 });
+}
+
+function sendOsc(packet: any): void {
+    if (!udpPort) return;
+    udpPort.send(packet);
+}
 
 // ============================================================
 // API OSC publique
@@ -38,7 +46,7 @@ udpPort.on('error', (err: Error) => {
  */
 export function sendDmxValue(universe: number, channel: number, value: number): void {
     const oscValue = Math.min(1, Math.max(0, value / 255)); // Normalise 0-255 -> 0.0-1.0
-    udpPort.send({
+    sendOsc({
         address: `/${universe}/${channel}`,
         args: [{ type: 'f', value: oscValue }],
     });
@@ -53,7 +61,7 @@ export function sendDmxValue(universe: number, channel: number, value: number): 
  */
 export function triggerScene(pageId: number, widgetId: number, activate = true): void {
     const val = activate ? 1.0 : 0.0;
-    udpPort.send({
+    sendOsc({
         address: `/qlc/button/${pageId}/${widgetId}`,
         args: [{ type: 'f', value: val }],
     });
@@ -68,7 +76,7 @@ export function triggerScene(pageId: number, widgetId: number, activate = true):
  */
 export function setSlider(pageId: number, widgetId: number, value: number): void {
     const oscValue = Math.min(1, Math.max(0, value / 255));
-    udpPort.send({
+    sendOsc({
         address: `/qlc/slider/${pageId}/${widgetId}`,
         args: [{ type: 'f', value: oscValue }],
     });
@@ -87,7 +95,7 @@ export function setBlackout(active: boolean): void {
  * Met à jour le BPM global dans QLC+.
  */
 export function setBpm(bpm: number): void {
-    udpPort.send({
+    sendOsc({
         address: '/qlc/bpm',
         args: [{ type: 'f', value: bpm }],
     });

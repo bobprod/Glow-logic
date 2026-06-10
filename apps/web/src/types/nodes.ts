@@ -6,5 +6,9 @@ export type NodeData = {
     channel?: number;
     device?: string;
     sublabel?: string;
+    // 3D positioning in the Visualizer
+    x3d?: number;
+    y3d?: number;
+    z3d?: number;
     [key: string]: unknown; // Allow extra keys for extensibility
 };

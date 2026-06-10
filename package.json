@@ -4,17 +4,27 @@
   "private": true,
   "description": "Système de contrôle de spectacle No-Code",
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "apps/*"
   ],
   "scripts": {
     "dev": "npm run dev --workspaces",
+    "start": "npm run start --workspaces",
+    "build": "npm run build --workspace web && npm run typecheck --workspace server",
+    "typecheck": "npm run typecheck --workspaces",
+    "test:api": "npm run test:api --workspace server",
+    "package:check": "npm run verify && npm run test:api && npm run build",
+    "verify": "npm run typecheck --workspaces && npm run lint --workspace web",
     "install:all": "npm install",
     "launcher": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Launch-GlowLogic.ps1",
     "launcher:stop": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Stop-GlowLogic.ps1",
-    "launcher:status": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Status-GlowLogic.ps1"
+    "launcher:stop:bash": "bash ./scripts/stop-glow-logic.sh",
+    "launcher:status": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Status-GlowLogic.ps1",
+    "stop:bash": "bash ./scripts/stop-glow-logic.sh"
   },
   "dependencies": {
-    "lightningcss-linux-x64-gnu": "^1.32.0"
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "@types/three": "^0.184.1",
+    "three": "^0.184.0"
   }
 }

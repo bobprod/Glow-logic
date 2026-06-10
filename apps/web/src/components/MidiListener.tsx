@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 "use client";
 
 import { useEffect } from "react";
@@ -60,6 +60,11 @@ export default function MidiListener() {
 
     const getActiveColor = () => ledColors["green"] ?? ledColors["on"] ?? 1;
     const getOffColor = () => ledColors["off"] ?? 0;
+    
+    // MIDI Clock state
+    let clockTicks = 0;
+    let lastClockTime = 0;
+    const clockIntervals: number[] = [];
 
     const updateLEDFeedback = (state: any) => {
       if (!midiOutputs || midiOutputs.length === 0) return;
@@ -67,7 +72,7 @@ export default function MidiListener() {
       const activeScene = state.smartActiveScene;
       const mappings = state.midiMappings;
 
-      // Loop through mappings
+      // 1. Update standard learned mappings
       for (const [controlId, mapping] of Object.entries(mappings)) {
         if (controlId.startsWith("pad_") && (mapping as any).type === 144) {
           const padId = parseInt(controlId.split("_")[1]);
@@ -83,6 +88,20 @@ export default function MidiListener() {
           }
         }
       }
+
+      // 2. Auto feedback for AKAI APC mini mutes (Note 64-69)
+      const groupMutes = state.groupMutes || {};
+      const groups = ['Face', 'Douche 1', 'Douche 2', 'Douche 3', 'Latéral', 'Contre'];
+      
+      groups.forEach((g, idx) => {
+        const isMuted = groupMutes[g] === true;
+        const note = 64 + idx; 
+        const velocity = isMuted ? 3 : 1; 
+        
+        midiOutputs.forEach((output: any) => {
+          output.send([144, note, velocity]);
+        });
+      });
     };
 
     let unsubscribeStore: (() => void) | null = null;
@@ -90,7 +109,7 @@ export default function MidiListener() {
     const onMIDISuccess = (access: any) => {
       midiAccess = access;
       for (const input of access.inputs.values()) {
-        input.onmidimessage = getMIDIMessage;
+        input.onmidimessage = (msg: any) => getMIDIMessage(msg, input.name);
       }
 
       midiOutputs = Array.from(access.outputs.values());
@@ -108,21 +127,78 @@ export default function MidiListener() {
       console.warn("L'accès au MIDI a échoué.");
     };
 
-    const getMIDIMessage = (midiMessage: any) => {
-      const [command, noteOffset, velocityOffset] = midiMessage.data;
-      const channel = command & 0x0f;
-      const type = command & 0xf0;
-      const data1 = noteOffset;
-      const data2 = velocityOffset;
+    const getMIDIMessage = (midiMessage: any, deviceName: string = "") => {
+      const data = midiMessage.data;
+      if (!data || data.length === 0) return;
 
-      // 144 = Note On, 176 = CC
+      const command = data[0];
+
+      // --- MIDI CLOCK (Timing Clock = 0xF8) ---
+      if (command === 0xF8) {
+        const now = performance.now();
+        if (lastClockTime > 0) {
+          const diff = now - lastClockTime;
+          if (diff > 5 && diff < 300) {
+            clockIntervals.push(diff);
+            if (clockIntervals.length > 48) clockIntervals.shift();
+            
+            clockTicks++;
+            if (clockTicks % 24 === 0) {
+              const avgInterval = clockIntervals.reduce((a, b) => a + b, 0) / clockIntervals.length;
+              const calculatedBpm = Math.round(60000 / (avgInterval * 24));
+              if (calculatedBpm >= 40 && calculatedBpm <= 240) {
+                useStore.getState().setBpm(calculatedBpm);
+              }
+            }
+          }
+        }
+        lastClockTime = now;
+        return;
+      }
+
+      const type = command & 0xf0;
+      const channel = command & 0x0f;
+      
       if (type !== 144 && type !== 176) return;
 
+      const data1 = data[1];
+      const data2 = data[2];
       const state = useStore.getState();
+
+      const isApcMini = deviceName.toLowerCase().includes("apc") || deviceName.toLowerCase().includes("akai");
+
+      // --- AKAI APC MINI AUTO-MAP ROUTING ---
+      if (isApcMini) {
+        if (type === 176 && data1 >= 48 && data1 <= 56) {
+          const percent = Math.round((data2 / 127) * 100);
+          
+          if (data1 === 48) state.setGroupLevel('Face', percent);
+          else if (data1 === 49) state.setGroupLevel('Douche 1', percent);
+          else if (data1 === 50) state.setGroupLevel('Douche 2', percent);
+          else if (data1 === 51) state.setGroupLevel('Douche 3', percent);
+          else if (data1 === 52) state.setGroupLevel('Latéral', percent);
+          else if (data1 === 53) state.setGroupLevel('Contre', percent);
+          else if (data1 === 55) {
+            state.setSmartZoneValue('Master', percent);
+            if (socket) socket.emit("smart:zone_intensity", { zoneId: 1, value: Math.round((percent/100)*255) });
+          }
+          return;
+        }
+
+        if (type === 144 && data2 > 0 && data1 >= 64 && data1 <= 71) {
+          const groups = ['Face', 'Douche 1', 'Douche 2', 'Douche 3', 'Latéral', 'Contre'];
+          const groupIdx = data1 - 64;
+          if (groupIdx >= 0 && groupIdx < groups.length) {
+            const g = groups[groupIdx];
+            const currentMute = state.groupMutes[g] === true;
+            state.setGroupMute(g, !currentMute);
+            return;
+          }
+        }
+      }
 
       // --- MIDI LEARN MODE ---
       if (state.midiLearnMode && state.midiLearnActiveControl) {
-        // Ignore note offs (velocity 0) for mapping
         if (type === 144 && data2 === 0) return;
 
         state.setMidiMapping(state.midiLearnActiveControl, {
@@ -130,7 +206,7 @@ export default function MidiListener() {
           channel,
           data1,
         });
-        state.setMidiLearnActiveControl(null); // Deselect after map
+        state.setMidiLearnActiveControl(null);
         return;
       }
 
@@ -151,10 +227,8 @@ export default function MidiListener() {
 
       if (!targetControlId) return;
 
-      // Actions function mapping
       if (targetControlId.startsWith("pad_")) {
         if (type === 144 && data2 > 0) {
-          // Note On & Velocity > 0
           const padId = parseInt(targetControlId.split("_")[1]);
           const pad = state.smartPads.find((p: any) => p.id === padId);
           if (pad) {
@@ -174,7 +248,6 @@ export default function MidiListener() {
         }
       } else if (targetControlId.startsWith("fader_")) {
         if (type === 176) {
-          // CC
           const zoneName = targetControlId.replace("fader_", "");
           const percent = Math.round((data2 / 127) * 100);
           state.setSmartZoneValue(zoneName, percent);
@@ -191,16 +264,13 @@ export default function MidiListener() {
         }
       } else if (targetControlId === "crossfader_main") {
         if (type === 176) {
-          // CC
           const percent = Math.round((data2 / 127) * 100);
-          // Emit value to websocket directly
           if (socket) {
             socket.emit("smart:crossfader", { value: percent });
           }
         }
       } else if (targetControlId === "topbar_blackout") {
         if (type === 144 && data2 > 0) {
-          // Note On / CC Button mapping
           const isActive = !state.smartBlackout;
           state.setSmartBlackout(isActive);
           if (socket) {
@@ -211,10 +281,6 @@ export default function MidiListener() {
         if (type === 144 && data2 > 0) {
           const isActive = !state.smartAutoPilot;
           state.setSmartAutoPilot(isActive);
-          if (socket) {
-            // socket.emit('smart:autopilot', { active: isActive });
-            // Add server listener support in your backend to handle smart:autopilot if needed
-          }
         }
       }
     };

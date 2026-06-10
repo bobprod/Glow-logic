@@ -10,17 +10,35 @@ Write-Host ''
 
 $allOk = $true
 
+function Get-ListeningProcessId {
+    param([int]$Port)
+
+    $conn = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($conn) {
+        return [int]$conn.OwningProcess
+    }
+
+    $line = netstat -ano -p tcp |
+        Select-String -Pattern (":$Port\s+.*LISTENING\s+\d+$") |
+        Select-Object -First 1
+    if (-not $line) {
+        return $null
+    }
+
+    $parts = ($line.Line.Trim() -split '\s+')
+    return [int]$parts[-1]
+}
+
 foreach ($entry in @(
     @{ Port = $SERVER_PORT; Label = 'Serveur API' },
     @{ Port = $WEB_PORT;    Label = 'Interface web' }
 )) {
-    $conn = Get-NetTCPConnection -LocalPort $entry.Port -State Listen -ErrorAction SilentlyContinue |
-        Select-Object -First 1
+    $procId = Get-ListeningProcessId -Port $entry.Port
 
-    if ($conn) {
-        $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
+    if ($procId) {
+        $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
         $name = if ($proc) { $proc.ProcessName } else { '?' }
-        $procId = $conn.OwningProcess
         $uptime = ''
         if ($proc -and $proc.StartTime) {
             $dur = (Get-Date) - $proc.StartTime

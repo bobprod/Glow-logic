@@ -11,3 +11,17 @@ build
 .claude
 *.db
 apps/web/test-results
+
+# Logs & temp files
+*.log
+*.pyc
+__pycache__/
+.playwright-mcp/
+*.exe
+*.msi
+*.zip
+*.tar.gz
+
+# OS files
+Thumbs.db
+Desktop.ini

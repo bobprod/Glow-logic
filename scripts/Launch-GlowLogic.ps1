@@ -1,164 +1,203 @@
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'SilentlyContinue'
 
-# -- Configuration -------------------------------------------------------------
-$WEB_PORT       = 3000
-$SERVER_PORT    = 3005
-$HEALTH_TIMEOUT = 45
+# -- Configuration ---
+$WEB_PORT = 3000
+$SRV_PORT = 3005
+$OSC_PORT = 57121
+$BRIDGE_PORT = 9999
+$TIMEOUT = 60
+$APP_URL = "http://localhost:$WEB_PORT"
 
-# -- Banner --------------------------------------------------------------------
-function Show-Banner {
-    Write-Host ''
-    Write-Host '     GLOW LOGIC' -ForegroundColor Cyan
-    Write-Host '     ==========' -ForegroundColor Cyan
-    Write-Host '     Systeme de controle de spectacle No-Code' -ForegroundColor DarkGray
-    Write-Host ''
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$serverPath = Join-Path $repoRoot 'apps\server'
+$webPath = Join-Path $repoRoot 'apps\web'
+$publicPath = Join-Path $webPath  'public'
+
+# -- Helpers ---
+
+function Get-PortPid([int]$Port) {
+    $c = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($c) { return $c.OwningProcess }
+    return $null
 }
 
-# -- Helpers -------------------------------------------------------------------
-function Test-RequiredCommand {
-    param([Parameter(Mandatory=$true)][string]$Name)
-    if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-        throw ('[ERREUR] Commande introuvable: {0} - installe Node.js.' -f $Name)
+function Free-Port([int]$Port) {
+    $pid_ = Get-PortPid $Port
+    if ($pid_) {
+        Stop-Process -Id $pid_ -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 400
+        Write-Host "  >> Port $Port libere" -ForegroundColor Yellow
     }
 }
 
-function Get-ListeningProcess {
-    param([Parameter(Mandatory=$true)][int]$Port)
-    $c = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if (-not $c) { return $null }
-    return Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
-}
-
-function Stop-PortProcess {
-    param([Parameter(Mandatory=$true)][int]$Port)
-    $p = Get-ListeningProcess -Port $Port
-    if ($p) {
-        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Milliseconds 500
-        Write-Host ('  [OK] Port {0} libere (PID {1} - {2})' -f $Port, $p.Id, $p.ProcessName) -ForegroundColor Green
-    }
-}
-
-function Wait-ForPort {
-    param(
-        [Parameter(Mandatory=$true)][int]$Port,
-        [Parameter(Mandatory=$true)][string]$Label,
-        [int]$Timeout = $HEALTH_TIMEOUT
-    )
-    $elapsed = 0
-    while ($elapsed -lt $Timeout) {
-        $c = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-        if ($c) {
-            Write-Host ('  [OK] {0} demarre (port {1}, {2}s)' -f $Label, $Port, $elapsed) -ForegroundColor Green
+function Wait-Port([int]$Port, [string]$Label) {
+    Write-Host "  .. Attente de $Label (port $Port)..." -ForegroundColor DarkGray
+    for ($i = 0; $i -lt $TIMEOUT; $i++) {
+        if (Get-PortPid $Port) {
+            Write-Host "  OK $Label pret ($i s)" -ForegroundColor Green
             return $true
         }
-        Start-Sleep -Seconds 1
-        $elapsed++
-        if ($elapsed % 5 -eq 0) {
-            Write-Host ('  ... attente {0} ({1}s/{2}s)' -f $Label, $elapsed, $Timeout) -ForegroundColor DarkGray
-        }
+        Start-Sleep 1
     }
-    Write-Host ('  [!] {0} pas demarre dans les {1}s' -f $Label, $Timeout) -ForegroundColor Yellow
+    Write-Host "  !! $Label pas demarre apres $TIMEOUT s" -ForegroundColor Red
     return $false
 }
 
-# -- Demarrage -----------------------------------------------------------------
-Show-Banner
+function Open-App([string]$Url) {
+    $edges = @(
+        "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+        "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+        "$env:LocalAppData\Microsoft\Edge\Application\msedge.exe"
+    )
+    $chromes = @(
+        "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+        "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
+    )
+    foreach ($br in ($edges + $chromes)) {
+        if (Test-Path $br) {
+            Start-Process $br "--app=$Url --window-size=1600,900 --no-first-run"
+            return
+        }
+    }
+    Start-Process $Url
+}
 
-# 1. Pre-requis
-Write-Host '[1/5] Verification des pre-requis...' -ForegroundColor White
-Test-RequiredCommand -Name 'node'
-Test-RequiredCommand -Name 'npm'
-$nodeVer = (node --version) 2>$null
-$npmVer  = (npm  --version) 2>$null
-Write-Host ('  Node {0} | npm v{1}' -f $nodeVer, $npmVer) -ForegroundColor DarkGray
+function Show-Toast([string]$Title, [string]$Body) {
+    try {
+        $null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+        $null = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom, ContentType = WindowsRuntime]
+        $xml = "<toast><visual><binding template='ToastGeneric'><text>$Title</text><text>$Body</text></binding></visual></toast>"
+        $xd = [Windows.Data.Xml.Dom.XmlDocument]::new()
+        $xd.LoadXml($xml)
+        $n = [Windows.UI.Notifications.ToastNotification]::new($xd)
+        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Glow Logic').Show($n)
+    }
+    catch { }
+}
 
-# 2. Chemins
-$repoRoot   = Split-Path -Parent $PSScriptRoot
-$serverPath = Join-Path $repoRoot 'apps\server'
-$webPath    = Join-Path $repoRoot 'apps\web'
+# -- Banner ---
+Clear-Host
+Write-Host ""
+Write-Host "  ======================================" -ForegroundColor Cyan
+Write-Host "   GLOW LOGIC v2  -- Smart Stage OS" -ForegroundColor Cyan
+Write-Host "  ======================================" -ForegroundColor DarkGray
+Write-Host ""
 
-if (-not (Test-Path $serverPath)) { throw ('Dossier serveur introuvable: {0}' -f $serverPath) }
-if (-not (Test-Path $webPath))    { throw ('Dossier web introuvable: {0}' -f $webPath) }
+# -- [1] Pre-requis ---
+Write-Host "[1/5] Pre-requis..." -ForegroundColor White
+foreach ($cmd in 'node', 'npm') {
+    if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
+        Write-Host "  ERREUR: '$cmd' introuvable. Installe Node.js: https://nodejs.org" -ForegroundColor Red
+        pause; exit 1
+    }
+}
+Write-Host "  OK Node $(node --version) / npm $(npm --version)" -ForegroundColor Green
 
-# 3. Dependencies
-Write-Host '[2/5] Verification des dependances...' -ForegroundColor White
-$rootMod   = Join-Path $repoRoot   'node_modules'
-$serverMod = Join-Path $serverPath 'node_modules'
-$webMod    = Join-Path $webPath    'node_modules'
+# -- [2] Dependances ---
+Write-Host "[2/5] Dependances npm..." -ForegroundColor White
+$missing = (-not (Test-Path (Join-Path $repoRoot   'node_modules'))) -or
+(-not (Test-Path (Join-Path $serverPath 'node_modules'))) -or
+(-not (Test-Path (Join-Path $webPath    'node_modules')))
 
-$needInstall = (-not (Test-Path $rootMod)) -or (-not (Test-Path $serverMod)) -or (-not (Test-Path $webMod))
-
-if ($needInstall) {
-    Write-Host '  node_modules manquants - installation en cours...' -ForegroundColor Yellow
+if ($missing) {
+    Write-Host "  Installation (patience ~1 min)..." -ForegroundColor Yellow
     Push-Location $repoRoot
     npm install --silent 2>&1 | Out-Null
     Pop-Location
-    Write-Host '  [OK] Dependances installees' -ForegroundColor Green
-} else {
-    Write-Host '  [OK] Dependances presentes' -ForegroundColor Green
+    Write-Host "  OK Dependances installees" -ForegroundColor Green
+}
+else {
+    Write-Host "  OK node_modules presents" -ForegroundColor Green
 }
 
-# 4. Ports
-Write-Host '[3/5] Liberation des ports...' -ForegroundColor White
-$portsFreed = $false
-foreach ($port in $SERVER_PORT, $WEB_PORT) {
-    $blocker = Get-ListeningProcess -Port $port
-    if ($blocker) {
-        Write-Host ('  Port {0} occupe par {1} (PID {2}) - arret...' -f $port, $blocker.ProcessName, $blocker.Id) -ForegroundColor Yellow
-        Stop-PortProcess -Port $port
-        $portsFreed = $true
+# -- [3] Icones PWA ---
+Write-Host "[3/5] Icones PWA..." -ForegroundColor White
+$i192 = Join-Path $publicPath 'icons\icon-192x192.png'
+$i512 = Join-Path $publicPath 'icons\icon-512x512.png'
+if (-not (Test-Path $i192) -or -not (Test-Path $i512)) {
+    $gen = Join-Path $PSScriptRoot 'Generate-PwaIcons.ps1'
+    if (Test-Path $gen) {
+        & $gen -WebPublicPath $publicPath
+    }
+    else {
+        Write-Host "  >> Generate-PwaIcons.ps1 absent, icones ignorees" -ForegroundColor Yellow
     }
 }
-if (-not $portsFreed) {
-    Write-Host ('  [OK] Ports {0} et {1} libres' -f $SERVER_PORT, $WEB_PORT) -ForegroundColor Green
+else {
+    Write-Host "  OK Icones presentes (192 + 512 px)" -ForegroundColor Green
 }
 
-# 5. Lancement
-Write-Host '[4/5] Demarrage des services...' -ForegroundColor White
+# -- [4] Ports ---
+Write-Host "[4/5] Liberation des ports..." -ForegroundColor White
+Free-Port $SRV_PORT
+Free-Port $WEB_PORT
+Free-Port $BRIDGE_PORT
+Free-Port $OSC_PORT
 
-$srvCmd = 'title Glow Logic - Serveur API & color 0A & cd /d "' + $repoRoot + '" & npm run dev -w apps/server'
-$webCmd = 'title Glow Logic - Interface Web & color 0B & cd /d "' + $repoRoot + '" & npm run dev -w apps/web'
-
-Start-Process -FilePath 'cmd.exe' -WorkingDirectory $repoRoot -ArgumentList '/k', $srvCmd | Out-Null
-Write-Host '  Serveur API lance...' -ForegroundColor DarkGray
-
-Start-Process -FilePath 'cmd.exe' -WorkingDirectory $repoRoot -ArgumentList '/k', $webCmd | Out-Null
-Write-Host '  Interface web lancee...' -ForegroundColor DarkGray
-
-# 6. Health check
-Write-Host '[5/5] Attente du demarrage...' -ForegroundColor White
-$serverOk = Wait-ForPort -Port $SERVER_PORT -Label 'Serveur API'
-$webOk    = Wait-ForPort -Port $WEB_PORT    -Label 'Interface web'
-
-# -- Resume -------------------------------------------------------------------
-Write-Host ''
-Write-Host '  ====================================' -ForegroundColor Cyan
-Write-Host '       GLOW LOGIC - EN LIGNE' -ForegroundColor Cyan
-Write-Host '  ====================================' -ForegroundColor Cyan
-
-if ($serverOk) {
-    Write-Host ('  API     http://localhost:{0}' -f $SERVER_PORT) -ForegroundColor Green
-} else {
-    Write-Host ('  API     http://localhost:{0}   [!]' -f $SERVER_PORT) -ForegroundColor Yellow
+# Arrêt des processus DMX orphelins éventuels
+$qlcProcs = Get-Process -Name qlcplus -ErrorAction SilentlyContinue
+if ($qlcProcs) {
+    foreach ($p in $qlcProcs) {
+        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+        Write-Host "  >> QLC+ résiduel arrêté (PID $($p.Id))" -ForegroundColor Yellow
+    }
 }
 
+$pyProcesses = Get-CimInstance Win32_Process -Filter "Name = 'python.exe' or Name = 'pythonw.exe'" -ErrorAction SilentlyContinue
+foreach ($p in $pyProcesses) {
+    if ($p.CommandLine -like "*dmx_bridge.py*") {
+        Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+        Write-Host "  >> Pont DMX Python résiduel arrêté (PID $($p.ProcessId))" -ForegroundColor Yellow
+    }
+}
+
+Write-Host "  OK Ports libres" -ForegroundColor Green
+
+# -- [5] Demarrage ---
+Write-Host "[5/5] Demarrage des services..." -ForegroundColor White
+
+$srvCmd = "/k title [GL] API & color 0A & cd /d `"$serverPath`" & npm run dev"
+$webCmd = "/k title [GL] Web & color 0B & cd /d `"$webPath`" & npm run dev"
+
+Start-Process 'cmd.exe' -ArgumentList $srvCmd -WindowStyle Minimized
+Write-Host "  .. Serveur API demarre (port $SRV_PORT)" -ForegroundColor DarkGray
+
+Start-Process 'cmd.exe' -ArgumentList $webCmd -WindowStyle Minimized
+Write-Host "  .. Interface Web demarree (port $WEB_PORT)" -ForegroundColor DarkGray
+
+# -- Health check ---
+Write-Host ""
+$srvOk = Wait-Port $SRV_PORT "API"
+$webOk = Wait-Port $WEB_PORT "Web"
+
+# -- Resume ---
+Write-Host ""
+Write-Host "  ======================================" -ForegroundColor Cyan
+if ($srvOk) { Write-Host "  API   http://localhost:$SRV_PORT" -ForegroundColor Green }
+else { Write-Host "  API   http://localhost:$SRV_PORT  [pas demarre]" -ForegroundColor Red }
+if ($webOk) { Write-Host "  APP   $APP_URL" -ForegroundColor Green }
+else { Write-Host "  APP   $APP_URL   [pas demarre]" -ForegroundColor Red }
+Write-Host "  ======================================" -ForegroundColor Cyan
+Write-Host ""
+
+# -- Ouvrir l'app ---
 if ($webOk) {
-    Write-Host ('  Web     http://localhost:{0}' -f $WEB_PORT) -ForegroundColor Green
-} else {
-    Write-Host ('  Web     http://localhost:{0}    [!]' -f $WEB_PORT) -ForegroundColor Yellow
+    Write-Host "  Ouverture dans Edge/Chrome (mode App)..." -ForegroundColor DarkGray
+    Open-App $APP_URL
+
+    if ($srvOk) {
+        Show-Toast "Glow Logic pret !" "App: $APP_URL  |  API: localhost:$SRV_PORT"
+    }
+    else {
+        Show-Toast "Glow Logic" "Interface OK - API non demarree (verif logs)"
+    }
+    Write-Host "  OK Application ouverte." -ForegroundColor Green
+}
+else {
+    Write-Host "  ERREUR: Interface Web pas demarree." -ForegroundColor Red
+    Write-Host "  Clique sur '[GL] Web' dans la barre des taches pour voir les logs." -ForegroundColor Yellow
+    Show-Toast "Glow Logic - Erreur" "Verif les fenetres GL dans la barre des taches"
 }
 
-Write-Host '  ------------------------------------' -ForegroundColor DarkGray
-Write-Host '  Stop    stop-glow-logic.cmd' -ForegroundColor DarkGray
-Write-Host '  Status  npm run launcher:status' -ForegroundColor DarkGray
-Write-Host '  ====================================' -ForegroundColor Cyan
-Write-Host ''
-
-if ($webOk) {
-    Start-Process ('http://localhost:{0}' -f $WEB_PORT) | Out-Null
-    Write-Host '  Navigateur ouvert.' -ForegroundColor Green
-}
-
-Write-Host ''
+Write-Host ""
+Start-Sleep 3

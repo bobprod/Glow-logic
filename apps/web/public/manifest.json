@@ -1,0 +1,65 @@
+{
+  "name": "Glow Logic v2",
+  "short_name": "Glow Logic",
+  "description": "Smart Stage OS & Nodal Creator — Contrôleur DMX no-code",
+  "start_url": "/",
+  "scope": "/",
+  "id": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0a0c10",
+  "theme_color": "#22d3ee",
+  "categories": ["productivity", "utilities", "music"],
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/glow-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/glow-icon.svg",
+      "sizes": "1280x720",
+      "type": "image/svg+xml",
+      "form_factor": "wide",
+      "label": "Glow Logic — Smart Dashboard"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Mode Smart",
+      "short_name": "Smart",
+      "description": "Ouvrir le tableau de bord éclairage",
+      "url": "/?mode=smart",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mode Creator",
+      "short_name": "Creator",
+      "description": "Ouvrir le canvas nodal",
+      "url": "/?mode=creator",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    }
+  ]
+}

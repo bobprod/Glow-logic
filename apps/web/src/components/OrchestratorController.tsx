@@ -1,0 +1,588 @@
+"use client";
+
+import React, { useState, useRef, useEffect } from "react";
+import { dmxEngine } from "@/lib/dmxEngine";
+import { socket } from "@/lib/socket";
+import { API_BASE } from "@/lib/config";
+import { filterUnsafeAiActions } from "@/lib/safetyClient";
+import {
+  Sparkles, Send, Loader2, Wand2, Zap, Music, Flame, Droplets, Wind,
+  Plus, Power, HelpCircle, Palette, Layers, Radio, SkipForward,
+  SlidersHorizontal, Mic, ChevronDown, ChevronRight, X
+} from "lucide-react";
+import useStore from "@/store/useStore";
+
+interface DmxCommand {
+  universe: number;
+  channel: number;
+  value: number;
+  description: string;
+}
+
+interface AiAction {
+  type: string;
+   
+  payload: any;
+}
+
+interface AiResponse {
+  description: string;
+  commands?: DmxCommand[];
+  actions?: AiAction[];
+}
+
+interface HistoryEntry {
+  prompt: string;
+  response: string;
+  commands: DmxCommand[];
+  actions: AiAction[];
+}
+
+interface ScenePreset {
+  name: string;
+  icon: React.ReactNode;
+  prompt: string;
+  color: string;
+}
+
+const PRESETS: ScenePreset[] = [
+  { name: "Disco", icon: <Zap className="w-4 h-4" />, prompt: "Crée une scène disco: couleurs vives rose/cyan/violet alternées, strobe rapide, dimmer 80%", color: "#ec4899" },
+  { name: "Calme", icon: <Droplets className="w-4 h-4" />, prompt: "Ambiance calme et relaxante, lumière blanche douce, dimmer 30%, pas de strobe", color: "#3b82f6" },
+  { name: "Concert", icon: <Music className="w-4 h-4" />, prompt: "Scène de concert rock: lumières blanches et ambrées, faisceaux étroits, strobe moyen, dimmer 100%", color: "#f97316" },
+  { name: "Club", icon: <Flame className="w-4 h-4" />, prompt: "Ambiance club: couleurs néon vert/bleu électrique, UV, mouvements rapides, strobe intense", color: "#22c55e" },
+  { name: "Théâtre", icon: <Wind className="w-4 h-4" />, prompt: "Éclairage théâtral dramatique: lumière chaude ambrée, spot central, mouvements lents, pas de strobe", color: "#eab308" },
+  { name: "Jazz", icon: <Radio className="w-4 h-4" />, prompt: "Ambiance jazz chaleureuse: teintes cuivrées et ambrées douces, transitions lentes et fluides, pas de strobe", color: "#d97706" },
+  { name: "Rock", icon: <Layers className="w-4 h-4" />, prompt: "Mode IA Lumière preset Rock: groupe Face rouge vif, Douche 1-3 en strobe blanc, Latéral et Contre en rouge pulsé sur les graves", color: "#ef4444" },
+  { name: "Soirée", icon: <SlidersHorizontal className="w-4 h-4" />, prompt: "Configure 8 pads de scènes pour une soirée DJ complète: entrée, warm-up, build-up, drop, break, outro, blackout, couleurs coordonnées", color: "#8b5cf6" },
+];
+
+const QUICK_PROMPTS = [
+  "Crée 4 pads: Intro bleu, Rock rouge, Drop violet, Calme blanc",
+  "Active le mode IA Lumière preset Club sur la piste en cours",
+  "Mets tous les groupes DMX en rouge vif à 80%",
+  "Groupe Face en blanc chaud, Contre en bleu profond",
+  "Coupe le groupe Douche 2, double le Face",
+  "Génère une scène BPM synchro avec le beat actuel",
+  "Ajoute la scène actuelle à la timeline à la position courante",
+  "Passe en mode Programme pour la piste sélectionnée",
+];
+
+export default function OrchestratorController({ fixtures: propFixtures = [] }: { fixtures?: any[] }) {
+  const [prompt, setPrompt] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [currentCommands, setCurrentCommands] = useState<DmxCommand[]>([]);
+  const [showQuickPrompts, setShowQuickPrompts] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const {
+    fixtures: storeFixtures,
+    addSmartPad, updateSmartPad, deleteSmartPad, smartPads: pads,
+    setGroupLevel, setGroupMute, setGroupColor,
+    groupLevels, groupMutes, groupColors,
+    bpm, smartBlackout, setSmartBlackout,
+    addClip, viewStart,
+    playlist, currentTrackIndex, updateTrackSettings,
+    setIsPlaying, setCurrentTrackIndex, masterVolume, setMasterVolume,
+    addToast,
+  } = useStore();
+
+  const activeFixtures = propFixtures.length > 0 ? propFixtures : storeFixtures;
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [history]);
+
+  // ─── System prompt builder ────────────────────────────────────────────────
+  const buildSystemPrompt = () => {
+    const groupsInfo = Object.entries(groupLevels).map(([g, lvl]) =>
+      `  - ${g}: niveau=${lvl}%, muet=${groupMutes[g] ? 'oui' : 'non'}, couleur=${groupColors[g]}`
+    ).join('\n');
+
+    const padsInfo = pads.map(p =>
+      `  - Pad #${p.id} "${p.name}": couleur=${p.color}, midiNote=${p.midiNote}, canaux DMX=${p.dmxValues ? Object.keys(p.dmxValues).length : 0}`
+    ).join('\n');
+
+    const currentTrack = playlist[currentTrackIndex];
+    const trackInfo = currentTrack
+      ? `Piste active: "${currentTrack.name}", mode=${currentTrack.lightMode}, preset=${currentTrack.aiPreset}, volume=${Math.round(currentTrack.volume * 100)}%`
+      : "Aucune piste active";
+
+    let fixtureText = "Aucune fixture configurée (mode par défaut: beam adresse 1, canaux Pan=1, Tilt=3, Dimmer=6, Strobe=7, Color=8, Gobo=9)";
+    if (activeFixtures.length > 0) {
+      fixtureText = activeFixtures.map((f, i) => {
+        const start = f.start_address || f.startAddress || 1;
+        const universe = f.universe || 1;
+        const channels = (f.channels || []).map((ch: any) => {
+          const abs = start + ch.channel - 1;
+          const live = dmxEngine.getChannel(universe, abs);
+          return `Canal ${abs} (${ch.type}/${ch.function || ch.name}): ${live}`;
+        }).join(', ');
+        return `${i + 1}. "${f.name}" U${universe} @ ${start}: ${channels}`;
+      }).join('\n');
+    }
+
+    return `Tu es l'IA Lumière de Glow Logic, un assistant expert en éclairage de scène et contrôle DMX.
+Tu peux tout contrôler via des commandes JSON structurées.
+
+## ÉTAT ACTUEL DU SYSTÈME
+BPM: ${bpm.toFixed(1)} | Blackout: ${smartBlackout ? 'OUI' : 'non'} | Master: ${Math.round(masterVolume * 100)}%
+
+### Groupes DMX (6 groupes):
+${groupsInfo}
+
+### Pads de scènes actifs (${pads.length}):
+${padsInfo}
+
+### Show Player:
+${trackInfo}
+Volume master: ${Math.round(masterVolume * 100)}%
+Playlist: ${playlist.length} piste(s)
+
+### Fixtures DMX connectées:
+${fixtureText}
+
+## FORMAT DE RÉPONSE (JSON strict)
+Réponds UNIQUEMENT avec un objet JSON valide:
+{
+  "description": "Explication courte en français de ce que tu fais",
+  "commands": [
+    {"universe": 1, "channel": N, "value": 0-255, "description": "quoi"}
+  ],
+  "actions": [
+    {
+      "type": "CREATE_PAD",
+      "payload": {"name": "...", "color": "bg-cyan-500", "textColor": "text-cyan-400", "iconName": "Zap", "midiNote": 56, "midiChannel": 1, "dmxValues": {}}
+    },
+    {
+      "type": "UPDATE_PAD",
+      "payload": {"id": N, "name": "...", "color": "...", "midiNote": N}
+    },
+    {
+      "type": "DELETE_PAD",
+      "payload": {"id": N}
+    },
+    {
+      "type": "SET_GROUP_LEVEL",
+      "payload": {"group": "Face", "value": 80}
+    },
+    {
+      "type": "SET_GROUP_COLOR",
+      "payload": {"group": "Face", "hex": "#ff0000"}
+    },
+    {
+      "type": "SET_GROUP_MUTE",
+      "payload": {"group": "Face", "muted": true}
+    },
+    {
+      "type": "SET_LIGHT_MODE",
+      "payload": {"trackIndex": N, "mode": "ia|manuel|programme", "preset": "rock|jazz|club|tv"}
+    },
+    {
+      "type": "SET_MASTER_VOLUME",
+      "payload": {"value": 0.8}
+    },
+    {
+      "type": "PLAY_TRACK",
+      "payload": {"index": N}
+    },
+    {
+      "type": "TOGGLE_PLAY",
+      "payload": {}
+    },
+    {
+      "type": "BLACKOUT",
+      "payload": {"active": true}
+    },
+    {
+      "type": "ADD_TIMELINE_CLIP",
+      "payload": {"name": "...", "startTime": N, "duration": N, "color": "bg-purple-500", "textColor": "text-purple-300"}
+    }
+  ]
+}
+
+Uniquement les champs "commands" et "actions" que tu as besoin d'utiliser. Tu peux combiner DMX + actions dans la même réponse.
+Ne mets AUCUN texte en dehors du JSON.`;
+  };
+
+  // ─── Apply AI actions to store ────────────────────────────────────────────
+  const applyActions = (actions: AiAction[]) => {
+    for (const action of actions) {
+      try {
+        switch (action.type) {
+          case "CREATE_PAD": {
+            const p = action.payload;
+            const nextWidget = pads.length > 0 ? Math.max(...pads.map(x => x.qlcWidget)) + 1 : 20;
+            addSmartPad({
+              id: Date.now() + Math.random(),
+              name: p.name || "Pad IA",
+              color: p.color || "bg-purple-500",
+              textColor: p.textColor || "text-purple-400",
+              iconName: p.iconName || "Sparkles",
+              qlcPage: 1,
+              qlcWidget: nextWidget,
+              dmxValues: p.dmxValues || {},
+              midiNote: p.midiNote ?? -1,
+              midiChannel: p.midiChannel ?? 1,
+              gridCol: 0, gridRow: 0, gridW: 1, gridH: 1,
+            });
+            break;
+          }
+          case "UPDATE_PAD":
+            if (action.payload.id) updateSmartPad(action.payload.id, action.payload);
+            break;
+          case "DELETE_PAD":
+            if (action.payload.id) deleteSmartPad(action.payload.id);
+            break;
+          case "SET_GROUP_LEVEL":
+            if (action.payload.group) setGroupLevel(action.payload.group, action.payload.value ?? 80);
+            break;
+          case "SET_GROUP_COLOR":
+            if (action.payload.group) setGroupColor(action.payload.group, action.payload.hex ?? "#ffffff");
+            break;
+          case "SET_GROUP_MUTE":
+            if (action.payload.group) setGroupMute(action.payload.group, !!action.payload.muted);
+            break;
+          case "SET_LIGHT_MODE":
+            if (action.payload.trackIndex !== undefined) {
+              const trackId = playlist[action.payload.trackIndex]?.id;
+              if (trackId) {
+                updateTrackSettings(trackId, {
+                  lightMode: action.payload.mode ?? "ia",
+                  ...(action.payload.preset ? { aiPreset: action.payload.preset } : {}),
+                });
+              }
+            }
+            break;
+          case "SET_MASTER_VOLUME":
+            setMasterVolume(action.payload.value ?? 0.8);
+            break;
+          case "PLAY_TRACK":
+            if (action.payload.index !== undefined) setCurrentTrackIndex(action.payload.index);
+            setIsPlaying(true);
+            break;
+          case "TOGGLE_PLAY":
+            setIsPlaying(true);
+            break;
+          case "BLACKOUT": {
+            const active = !!action.payload.active;
+            setSmartBlackout(active);
+            socket.emit("smart:blackout", { active });
+            break;
+          }
+          case "ADD_TIMELINE_CLIP": {
+            const p = action.payload;
+            const nextWidget = pads.length > 0 ? Math.max(...pads.map(x => x.qlcWidget)) + 1 : 20;
+            addClip({
+              id: `ai-clip-${Date.now()}`,
+              track: "lights",
+              name: p.name || "Clip IA",
+              startTime: p.startTime ?? viewStart ?? 0,
+              duration: p.duration ?? 15000,
+              color: p.color || "bg-purple-500",
+              textColor: p.textColor || "text-purple-300",
+              qlcPage: 1,
+              qlcWidget: nextWidget,
+            });
+            break;
+          }
+        }
+      } catch (e) {
+        console.warn(`[AI Lumière] Action ${action.type} error:`, e);
+      }
+    }
+  };
+
+  // ─── LLM call ─────────────────────────────────────────────────────────────
+  const sendToLLM = async (userPrompt: string) => {
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/llm/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemPrompt: buildSystemPrompt(),
+          prompt: userPrompt,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      const content = data.choices?.[0]?.message?.content || data.content || data.text || "";
+      const jsonMatch = content.match(/```json\n?([\s\S]*?)\n?```/) || content.match(/\{[\s\S]*\}/);
+      const jsonStr = jsonMatch ? jsonMatch[1] || jsonMatch[0] : content;
+
+      let parsed: AiResponse = { description: "Action appliquée", commands: [], actions: [] };
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch {
+        parsed = { description: content.slice(0, 100), commands: [], actions: [] };
+      }
+
+      const commands = (parsed.commands || []).map(cmd => ({
+        ...cmd,
+        description: cmd.description || `Ch ${cmd.channel} = ${cmd.value}`,
+      }));
+
+      const safetyResult = await filterUnsafeAiActions(parsed.actions || [], "ai", addToast);
+      const actions = safetyResult.accepted;
+
+      // Apply DMX commands
+      commands.forEach(cmd => {
+        dmxEngine.setChannel(cmd.universe, cmd.channel, cmd.value);
+        socket.emit("dmx_update", { universe: cmd.universe, channel: cmd.channel, value: cmd.value });
+      });
+
+      // Apply store actions
+      applyActions(actions);
+
+      setCurrentCommands(commands);
+      setHistory(prev => [...prev, {
+        prompt: userPrompt,
+        response: parsed.description || "Action appliquée",
+        commands,
+        actions,
+      }]);
+
+      socket.emit("timeline_log", {
+        type: "ai",
+        text: `[IA Lumière] ${parsed.description || "Action appliquée"} (${commands.length} canaux · ${actions.length} actions)`,
+      });
+
+      if (actions.length > 0) {
+        addToast({
+          type: "success",
+          message: "IA Lumière",
+          detail: parsed.description || `${actions.length} action(s) appliquée(s)`,
+          duration: 2500,
+        });
+      }
+
+    } catch (err) {
+      console.error("[AI Lumière] LLM error:", err);
+      setHistory(prev => [...prev, {
+        prompt: userPrompt,
+        response: `Erreur: ${err instanceof Error ? err.message : "LLM inaccessible"}`,
+        commands: [],
+        actions: [],
+      }]);
+      addToast({ type: "error", message: "IA Lumière", detail: "Erreur de connexion LLM" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prompt.trim() || isLoading) return;
+    sendToLLM(prompt.trim());
+    setPrompt("");
+    setShowQuickPrompts(false);
+  };
+
+  const handleBlackoutToggle = () => {
+    const next = !smartBlackout;
+    setSmartBlackout(next);
+    socket.emit("smart:blackout", { active: next });
+    addToast({ type: next ? "warning" : "info", message: next ? "Blackout activé" : "Blackout désactivé" });
+  };
+
+  return (
+    <div className="bg-[#12141a] border border-white/5 rounded-2xl w-full shrink-0 flex flex-col shadow-2xl relative overflow-hidden">
+
+      {/* Ambient glow */}
+      <div className="absolute inset-0 bg-gradient-to-br from-purple-500/3 via-transparent to-cyan-500/3 pointer-events-none" />
+
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/5 relative z-10">
+        <h3 className="text-white font-black text-xs tracking-wider flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-purple-400 animate-pulse" />
+          IA LUMIÈRE — Contrôle Total par Prompt
+        </h3>
+        <div className="flex gap-2">
+          <button
+            onClick={handleBlackoutToggle}
+            className={`p-1.5 rounded-lg border transition-all ${
+              smartBlackout
+                ? "bg-red-500 border-red-400 text-black shadow-[0_0_12px_rgba(239,68,68,0.5)]"
+                : "bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/25"
+            }`}
+            title="Blackout d'urgence"
+          >
+            <Power className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Quick presets */}
+      <div className="grid grid-cols-4 gap-1.5 px-4 pt-3 pb-2 relative z-10">
+        {PRESETS.map(preset => (
+          <button
+            key={preset.name}
+            onClick={() => sendToLLM(preset.prompt)}
+            disabled={isLoading}
+            className="flex flex-col items-center gap-1 p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 transition-all disabled:opacity-50 group"
+          >
+            <span style={{ color: preset.color }} className="group-hover:scale-110 transition-transform">
+              {preset.icon}
+            </span>
+            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider leading-none">
+              {preset.name}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Chat capability badges */}
+      <div className="flex flex-wrap gap-1.5 px-4 pb-2 relative z-10">
+        {[
+          { icon: <Palette className="w-2.5 h-2.5" />, label: "Couleurs", color: "text-pink-400" },
+          { icon: <Layers className="w-2.5 h-2.5" />, label: "Pads", color: "text-cyan-400" },
+          { icon: <SlidersHorizontal className="w-2.5 h-2.5" />, label: "Groupes DMX", color: "text-green-400" },
+          { icon: <Music className="w-2.5 h-2.5" />, label: "BPM/Mode", color: "text-yellow-400" },
+          { icon: <Mic className="w-2.5 h-2.5" />, label: "Playlist", color: "text-purple-400" },
+          { icon: <SkipForward className="w-2.5 h-2.5" />, label: "Timeline", color: "text-orange-400" },
+        ].map(badge => (
+          <span key={badge.label} className={`flex items-center gap-1 text-[9px] ${badge.color} bg-white/5 px-2 py-0.5 rounded-full font-bold`}>
+            {badge.icon} {badge.label}
+          </span>
+        ))}
+      </div>
+
+      {/* History */}
+      <div ref={scrollRef} className="flex-1 min-h-[120px] max-h-[240px] overflow-y-auto space-y-2 px-4 pb-2 relative z-10 custom-scrollbar">
+        {history.length === 0 && (
+          <div className="text-center py-8">
+            <Wand2 className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+            <p className="text-slate-500 text-xs font-medium">Décris ce que tu veux en français...</p>
+            <p className="text-slate-600 text-[10px] mt-1 font-mono">"Crée 6 pads colorés pour une soirée DJ"</p>
+            <p className="text-slate-600 text-[10px] font-mono">"Groupe Face en rouge à 80%, Contre en bleu"</p>
+            <p className="text-slate-600 text-[10px] font-mono">"Active mode IA Club sur la piste 2"</p>
+            <div className="mt-4 p-3 bg-black/30 rounded-xl border border-white/5 text-[10px] text-slate-500 text-left leading-relaxed flex gap-2">
+              <HelpCircle className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+              <span>L'IA contrôle tout : DMX, pads, groupes, couleurs, modes lumineux, playlist, timeline — en une seule phrase naturelle.</span>
+            </div>
+          </div>
+        )}
+        {history.map((entry, i) => (
+          <div key={i} className="bg-[#0a0c10] rounded-xl p-3 border border-white/5 space-y-2">
+            <p className="text-xs text-slate-300 font-medium">→ {entry.prompt}</p>
+            <p className="text-[10px] text-cyan-400 leading-relaxed">{entry.response}</p>
+            {(entry.commands.length > 0 || entry.actions.length > 0) && (
+              <div className="flex flex-wrap gap-1">
+                {entry.commands.slice(0, 4).map((cmd, j) => (
+                  <button
+                    key={`cmd-${j}`}
+                    onClick={() => { dmxEngine.setChannel(cmd.universe, cmd.channel, cmd.value); socket.emit("dmx_update", cmd); }}
+                    className="text-[9px] bg-slate-900 border border-white/5 hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-400 rounded px-2 py-0.5 transition-colors font-mono"
+                  >
+                    Ch{cmd.channel}={cmd.value}
+                  </button>
+                ))}
+                {entry.actions.map((act, j) => (
+                  <span key={`act-${j}`} className="text-[9px] bg-purple-500/10 border border-purple-500/20 text-purple-400 rounded px-2 py-0.5 font-bold">
+                    {act.type.replace(/_/g, ' ')}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {isLoading && (
+          <div className="flex items-center gap-2 text-purple-400 text-xs font-medium py-2 px-1">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            L'IA analyse et applique vos instructions…
+          </div>
+        )}
+      </div>
+
+      {/* Quick prompts dropdown */}
+      {showQuickPrompts && (
+        <div className="px-4 pb-2 relative z-20">
+          <div className="bg-[#0a0c10] border border-white/10 rounded-xl overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Suggestions rapides</span>
+              <button onClick={() => setShowQuickPrompts(false)} className="text-slate-500 hover:text-white">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+            {QUICK_PROMPTS.map((qp, i) => (
+              <button
+                key={i}
+                onClick={() => { setPrompt(qp); setShowQuickPrompts(false); inputRef.current?.focus(); }}
+                className="w-full text-left text-[10px] text-slate-300 hover:text-white hover:bg-white/5 px-3 py-2 transition-colors border-b border-white/5 last:border-0"
+              >
+                {qp}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Input zone */}
+      <div className="px-4 pb-4 pt-2 relative z-10 border-t border-white/5">
+        <form onSubmit={handleSubmit} className="flex gap-2 items-center">
+          <button
+            type="button"
+            onClick={() => setShowQuickPrompts(v => !v)}
+            className="shrink-0 p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-400 hover:text-white transition-all"
+            title="Suggestions rapides"
+          >
+            {showQuickPrompts ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          </button>
+          <input
+            ref={inputRef}
+            type="text"
+            value={prompt}
+            onChange={e => setPrompt(e.target.value)}
+            placeholder='Ex: "Crée 4 pads: Intro bleu, Rock rouge, Drop violet, Calme blanc"'
+            disabled={isLoading}
+            className="ai-prompt-input flex-1 bg-[#0a0c10] border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/30 transition-all"
+          />
+          <button
+            type="submit"
+            disabled={isLoading || !prompt.trim()}
+            className="shrink-0 px-3 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-bold text-xs disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-lg shadow-purple-500/20 flex items-center gap-1.5"
+          >
+            {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">Envoyer</span>
+          </button>
+        </form>
+
+        {/* Action bar */}
+        <div className="flex justify-between items-center mt-2 text-[10px]">
+          <button
+            type="button"
+            onClick={() => sendToLLM(`Génère des effets adaptés au BPM actuel de ${bpm.toFixed(1)} BPM pour la scène en cours`)}
+            className="px-2.5 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 text-cyan-400 rounded-lg font-bold transition-all flex items-center gap-1"
+          >
+            <Music className="w-3 h-3" />
+            Sync {bpm.toFixed(0)} BPM
+          </button>
+          {currentCommands.length > 0 && (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => sendToLLM(`Sauvegarde la scène actuelle (${currentCommands.length} canaux DMX) comme un nouveau pad avec un nom approprié`)}
+                className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/5 rounded-lg font-bold transition-all flex items-center gap-1"
+              >
+                <Plus className="w-3 h-3" />
+                Sauver Pad
+              </button>
+              <button
+                type="button"
+                onClick={() => sendToLLM(`Ajoute un clip timeline pour la scène actuelle (${currentCommands.length} canaux) à la position courante`)}
+                className="px-2.5 py-1.5 bg-purple-500 hover:bg-purple-400 text-black rounded-lg font-black transition-all flex items-center gap-1 shadow-md shadow-purple-500/10"
+              >
+                <Plus className="w-3 h-3" />
+                → Timeline
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

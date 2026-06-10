@@ -1,5 +1,4 @@
 import React from 'react';
-import { socket } from '../../lib/socket';
 import useStore, { SmartPad as PadType } from '../../store/useStore';
 import { Activity, Flame, Zap, Droplets, Sparkles, AudioLines } from 'lucide-react';
 
@@ -8,9 +7,9 @@ const IconMap: Record<string, React.ElementType> = {
 };
 
 export const Pad = ({ pad }: { pad: PadType }) => {
-    const { smartActiveScene, setSmartActiveScene, midiLearnMode, midiLearnActiveControl, setMidiLearnActiveControl, midiMappings } = useStore();
+    const { smartActiveScene, midiLearnMode, midiLearnActiveControl, setMidiLearnActiveControl, midiMappings, triggerSmartPad } = useStore();
     const active = smartActiveScene === pad.qlcWidget;
-    const Icon = IconMap[pad.iconName || 'Zap'] || Zap;
+    const Icon = (IconMap[pad.iconName || 'Zap'] || Zap) as React.FC<{ className?: string }>;
 
     const controlId = `pad_${pad.id}`;
     const isLearning = midiLearnMode && midiLearnActiveControl === controlId;
@@ -22,9 +21,7 @@ export const Pad = ({ pad }: { pad: PadType }) => {
             return;
         }
 
-        const isActive = active;
-        if (pad.qlcWidget && socket) socket.emit('smart:trigger_scene', { pageId: pad.qlcPage || 1, widgetId: pad.qlcWidget, active: !isActive });
-        setSmartActiveScene(!isActive && pad.qlcWidget ? pad.qlcWidget : null);
+        triggerSmartPad(pad);
     };
 
     return (
