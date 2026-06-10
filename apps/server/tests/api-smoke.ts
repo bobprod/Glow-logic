@@ -37,6 +37,21 @@ async function request(path: string, options: RequestInit = {}, okStatuses = [20
   return body;
 }
 
+async function binaryRequest(path: string, options: RequestInit = {}, okStatuses = [200]) {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+    },
+  });
+  const body = Buffer.from(await response.arrayBuffer());
+  assert.ok(
+    okStatuses.includes(response.status),
+    `${options.method || "GET"} ${path} -> ${response.status}: ${body.toString("utf8").slice(0, 200)}`,
+  );
+  return { response, body };
+}
+
 async function isServerReady() {
   try {
     const response = await fetch(`${BASE_URL}/api/safety`);
@@ -66,12 +81,15 @@ async function ensureServer() {
   throw new Error(`Server did not become ready at ${BASE_URL}`);
 }
 
-async function cleanup(child: ManagedServerProcess | null, fixtureIds: number[], libraryIds: number[]) {
+async function cleanup(child: ManagedServerProcess | null, fixtureIds: number[], libraryIds: number[], projectIds: number[]) {
   for (const id of fixtureIds) {
     await fetch(`${BASE_URL}/api/fixtures/${id}`, { method: "DELETE" }).catch(() => undefined);
   }
   for (const id of libraryIds) {
     await fetch(`${BASE_URL}/api/library/${id}`, { method: "DELETE" }).catch(() => undefined);
+  }
+  for (const id of projectIds) {
+    await fetch(`${BASE_URL}/api/projects/${id}`, { method: "DELETE" }).catch(() => undefined);
   }
   if (child) {
     await new Promise<void>((resolve) => child.close(() => resolve()));
@@ -153,6 +171,17 @@ async function testSafety() {
   const state = await request("/api/safety");
   assert.ok(Array.isArray(state.rules));
 
+  const compactStatus = await request("/api/safety/status");
+  assert.equal(typeof compactStatus.laserArmed, "boolean");
+  assert.equal(typeof compactStatus.pyroArmed, "boolean");
+  assert.equal(typeof compactStatus.operatorRole, "string");
+
+  const rejectedAliasArm = await request("/api/safety/arm", {
+    method: "POST",
+    body: JSON.stringify({ type: "laser", state: true }),
+  }, [400]);
+  assert.ok(String(rejectedAliasArm.error || rejectedAliasArm.details).length > 0);
+
   const standard = await request("/api/safety/validate", {
     method: "POST",
     body: JSON.stringify({ source: "api", description: "standard api smoke" }),
@@ -170,6 +199,24 @@ async function testSafety() {
   });
   assert.equal(blockedLaser.allowed, false);
   assert.equal(blockedLaser.requiresManualArm, true);
+}
+
+async function testDmxRouterOutputs() {
+  const original = await request("/api/dmx/router");
+  const disabled = await request("/api/dmx/router", {
+    method: "POST",
+    body: JSON.stringify({ qlcOsc: false, qlcWs: false, artNet: false, usbDmx: false }),
+  });
+  assert.equal(disabled.success, true);
+  assert.equal(disabled.outputs.qlcOsc, false);
+  assert.equal(disabled.outputs.qlcWs, false);
+  assert.equal(disabled.outputs.artNet, false);
+  assert.equal(disabled.outputs.usbDmx, false);
+
+  await request("/api/dmx/router", {
+    method: "POST",
+    body: JSON.stringify(original),
+  });
 }
 
 async function testShowActions() {
@@ -199,19 +246,56 @@ async function testShowActions() {
   assert.equal(blockedDangerousAction.results[0].blocked, true);
 }
 
+async function testProjectPackages(projectIds: number[]) {
+  const projectName = `API Smoke Project ${RUN_ID}`;
+  const saved = await request("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({
+      name: projectName,
+      data: {
+        version: 3,
+        currentProjectName: projectName,
+        smartPads: [{ id: 1, name: "Smoke Pad", qlcPage: 1, qlcWidget: 1 }],
+        playlist: [{ id: "video-1", name: "Smoke Video", fileType: "video", fileUrl: "C:/shows/smoke.mp4" }],
+      },
+    }),
+  });
+  assert.equal(saved.success, true);
+  assert.equal(typeof saved.id, "number");
+  projectIds.push(saved.id);
+
+  const exported = await binaryRequest(`/api/projects/${saved.id}/export`);
+  assert.equal(exported.response.headers.get("content-type"), "application/vnd.glowlogic.project+zip");
+  assert.equal(exported.body.subarray(0, 2).toString("utf8"), "PK");
+  assert.ok(exported.body.includes(Buffer.from("manifest.json")));
+  assert.ok(exported.body.includes(Buffer.from("database/project.db")));
+
+  const form = new FormData();
+  form.append("project", new Blob([exported.body], { type: "application/vnd.glowlogic.project+zip" }), "api-smoke.glowproject");
+  form.append("name", `${projectName} Imported`);
+  form.append("mergeDatabase", "false");
+  const imported = await request("/api/projects/import", { method: "POST", body: form });
+  assert.equal(imported.success, true);
+  assert.equal(typeof imported.imported.projectId, "number");
+  projectIds.push(imported.imported.projectId);
+}
+
 async function main() {
   const child = await ensureServer();
   const fixtureIds: number[] = [];
   const libraryIds: number[] = [];
+  const projectIds: number[] = [];
 
   try {
     await testFixtures(fixtureIds, libraryIds);
     await testLibrary(libraryIds);
     await testSafety();
+    await testDmxRouterOutputs();
     await testShowActions();
-    console.log("API smoke tests passed: fixtures, library, safety, show-actions.");
+    await testProjectPackages(projectIds);
+    console.log("API smoke tests passed: fixtures, library, safety, show-actions, project-packages.");
   } finally {
-    await cleanup(child, fixtureIds, libraryIds);
+    await cleanup(child, fixtureIds, libraryIds, projectIds);
   }
 }
 

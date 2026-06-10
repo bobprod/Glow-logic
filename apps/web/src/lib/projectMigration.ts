@@ -58,7 +58,7 @@ export function normalizeProjectState(
     smartWidgets: asArray(input?.smartWidgets, asArray(fallback.smartWidgets)),
     smartPadColumns: asNumber(input?.smartPadColumns, asNumber(fallback.smartPadColumns, 4)),
     midiMappings: asRecord(input?.midiMappings, asRecord(fallback.midiMappings)),
-    dmxOutputs: asRecord(input?.dmxOutputs, asRecord(fallback.dmxOutputs, { qlcWs: true, artNet: false, usbDmx: false })),
+    dmxOutputs: asRecord(input?.dmxOutputs, asRecord(fallback.dmxOutputs, { qlcOsc: true, qlcWs: false, artNet: true, usbDmx: false })),
     networkState: {
       adapters: asArray(input?.networkState?.adapters, asArray(fallback.networkState?.adapters)),
       activeAdapter: input?.networkState?.activeAdapter ?? fallback.networkState?.activeAdapter ?? null,

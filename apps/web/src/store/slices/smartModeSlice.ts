@@ -2,7 +2,7 @@ import { StateCreator } from 'zustand';
 import { API_BASE } from '../../lib/config';
 import { socket } from '../../lib/socket';
 import { dmxEngine } from '../../lib/dmxEngine';
-import type { DmxOutputsConfig, NetworkState, PatchedFixture } from '../../types/show';
+import type { DmxOutputsConfig, NetworkState, PatchedFixture } from '../../types/dmx';
 
 export type SmartPad = {
     id: number;
@@ -142,7 +142,7 @@ export interface SmartModeSlice {
 }
 
 export const createSmartModeSlice: StateCreator<SmartModeSlice, [], [], SmartModeSlice> = (set, get) => ({
-    dmxOutputs: { qlcWs: true, artNet: false, usbDmx: false },
+    dmxOutputs: { qlcOsc: true, qlcWs: false, artNet: true, usbDmx: false },
     setDmxOutputs: (outputs) => set(state => ({
         dmxOutputs: { ...state.dmxOutputs, ...outputs },
     })),
@@ -224,8 +224,9 @@ export const createSmartModeSlice: StateCreator<SmartModeSlice, [], [], SmartMod
         }
     },
     triggerSmartPad: (pad) => {
-        const { smartActiveScene: activeScene, smartPads: pads, fixtures } = get();
+        const { smartActiveScene: activeScene, smartPads: pads, fixtures, masterDimmer } = get();
         const isActive = activeScene === pad.qlcWidget;
+        const scaleValue = (value: number) => Math.round(Math.max(0, Math.min(255, value)) * (masterDimmer / 255));
 
         const deactivatePadDmx = (padToDeactivate: SmartPad) => {
             const dmxValues = padToDeactivate.dmxValues;
@@ -269,12 +270,12 @@ export const createSmartModeSlice: StateCreator<SmartModeSlice, [], [], SmartMod
         if (!isActive) {
             if (pad.dmxValues) {
                 Object.entries(pad.dmxValues).forEach(([chStr, val]) => {
-                    dmxEngine.setChannel(1, Number(chStr), Number(val));
+                    dmxEngine.setChannel(1, Number(chStr), scaleValue(Number(val)));
                 });
             }
             if (pad.dmxCommands) {
                 pad.dmxCommands.forEach((command) => {
-                    dmxEngine.setChannel(command.universe, command.channel, command.value);
+                    dmxEngine.setChannel(command.universe, command.channel, scaleValue(command.value));
                 });
             }
         } else {

@@ -104,6 +104,12 @@ const useStore = create<StoreState>()(
         rehydratedState.blackout = Boolean(rehydratedState.blackout ?? rehydratedState.smartBlackout ?? false);
         rehydratedState.smartBlackout = rehydratedState.blackout;
         rehydratedState.masterDimmer = Math.max(0, Math.min(255, Number(rehydratedState.masterDimmer ?? 255)));
+        rehydratedState.dmxOutputs = {
+          qlcOsc: Boolean(rehydratedState.dmxOutputs?.qlcOsc ?? true),
+          qlcWs: Boolean(rehydratedState.dmxOutputs?.qlcWs ?? false),
+          artNet: Boolean(rehydratedState.dmxOutputs?.artNet ?? true),
+          usbDmx: Boolean(rehydratedState.dmxOutputs?.usbDmx ?? false),
+        };
         rehydratedState.laserArmed = Boolean(rehydratedState.laserArmed ?? false);
         rehydratedState.pyroArmed = Boolean(rehydratedState.pyroArmed ?? false);
       },
@@ -125,4 +131,4 @@ export type {
   NetworkState,
   PatchedFixture,
   TimelineProject,
-} from "../types/show";
+} from "../types/dmx";

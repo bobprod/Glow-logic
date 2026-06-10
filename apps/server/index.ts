@@ -87,6 +87,7 @@ import {
 } from "./services/mediaGenerator";
 import { executeShowActions, type ShowActionInput } from "./services/showActions";
 import { diagnoseSystem } from "./services/anomalyDetector";
+import { buildProjectPackage, importProjectPackage } from "./services/projectPackage";
 
 const app = express();
 function getErrorMessage(error: unknown) {
@@ -176,6 +177,10 @@ const profileUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
 });
+const projectPackageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 250 * 1024 * 1024 },
+});
 
 app.get("/api/support/logs", (req, res) => {
   const limit = Number(req.query.limit || 100);
@@ -249,6 +254,21 @@ app.get("/api/safety", (_req, res) => {
   }
 });
 
+app.get("/api/safety/status", (_req, res) => {
+  try {
+    const state = getSafetyState();
+    res.json({
+      laserArmed: state.armed.laser,
+      pyroArmed: state.armed.pyro,
+      operatorRole: state.operatorRole,
+      dangerousPhysicalOutputsEnabled: state.dangerousPhysicalOutputsEnabled,
+    });
+  } catch (err: any) {
+    addSupportLog("SAFETY", `Safety compact status failed: ${err.message}`, "error");
+    res.status(500).json({ error: "Erreur statut safety", details: err.message });
+  }
+});
+
 app.post("/api/safety/role", (req, res) => {
   try {
     const { role } = req.body as { role?: OperatorRole };
@@ -264,13 +284,16 @@ app.post("/api/safety/role", (req, res) => {
 
 app.post("/api/safety/arm", (req, res) => {
   try {
-    const { hazard, armed, confirmation } = req.body as {
+    const { hazard, type, armed, state, confirmation } = req.body as {
       hazard?: HazardType;
+      type?: HazardType;
       armed?: boolean;
+      state?: boolean;
       confirmation?: string;
     };
-    if (!hazard) return res.status(400).json({ error: "Hazard obligatoire" });
-    res.json(setHazardArmed(hazard, Boolean(armed), confirmation));
+    const selectedHazard = hazard || type;
+    if (!selectedHazard) return res.status(400).json({ error: "Hazard obligatoire" });
+    res.json(setHazardArmed(selectedHazard, Boolean(armed ?? state), confirmation));
   } catch (err: any) {
     addSupportLog("SAFETY", `Arm update failed: ${err.message}`, "warning");
     res.status(400).json({ error: "Armement impossible", details: err.message });
@@ -633,6 +656,72 @@ app.post("/api/projects/repair", (req, res) => {
     res.json(report);
   } catch (error: any) {
     res.status(500).json({ error: "Reparation stockage projets impossible", details: error.message });
+  }
+});
+
+function sendProjectPackage(res: express.Response, pack: { filename: string; buffer: Buffer }) {
+  res.setHeader("Content-Type", "application/vnd.glowlogic.project+zip");
+  res.setHeader("Content-Disposition", `attachment; filename="${pack.filename.replace(/"/g, "")}"`);
+  res.setHeader("Content-Length", String(pack.buffer.length));
+  res.send(pack.buffer);
+}
+
+app.post("/api/projects/export", (req, res) => {
+  try {
+    const projectState = req.body?.projectState || req.body?.data;
+    if (!projectState || typeof projectState !== "object" || Array.isArray(projectState)) {
+      return res.status(400).json({ error: "projectState obligatoire" });
+    }
+    const pack = buildProjectPackage({
+      name: typeof req.body?.name === "string" ? req.body.name : undefined,
+      projectState,
+    });
+    addSupportLog("PROJECTS", `Project package exported from payload: ${pack.manifest.name}`, "info", {
+      bytes: pack.buffer.length,
+      counts: pack.manifest.counts,
+    });
+    sendProjectPackage(res, pack);
+  } catch (error: any) {
+    addSupportLog("PROJECTS", `Project package export failed: ${error.message}`, "error");
+    res.status(500).json({ error: "Export .glowproject impossible", details: error.message });
+  }
+});
+
+app.get("/api/projects/:id/export", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: "ID projet invalide" });
+    }
+    const pack = buildProjectPackage({ projectId: id });
+    addSupportLog("PROJECTS", `Project package exported: ${pack.manifest.name}`, "info", {
+      projectId: id,
+      bytes: pack.buffer.length,
+      counts: pack.manifest.counts,
+    });
+    sendProjectPackage(res, pack);
+  } catch (error: any) {
+    const status = error.message === "Projet introuvable" ? 404 : 500;
+    addSupportLog("PROJECTS", `Project package export failed: ${error.message}`, "error");
+    res.status(status).json({ error: "Export .glowproject impossible", details: error.message });
+  }
+});
+
+app.post("/api/projects/import", projectPackageUpload.single("project"), (req, res) => {
+  try {
+    const buffer = req.file?.buffer || (Buffer.isBuffer(req.body) ? req.body : null);
+    if (!buffer) {
+      return res.status(400).json({ error: "Fichier .glowproject obligatoire dans le champ project" });
+    }
+    const imported = importProjectPackage(buffer, {
+      name: typeof req.body?.name === "string" && req.body.name.trim() ? req.body.name.trim() : undefined,
+      mergeDatabase: req.body?.mergeDatabase === undefined ? true : req.body.mergeDatabase !== "false",
+    });
+    addSupportLog("PROJECTS", `Project package imported: ${imported.manifest.name}`, "info", imported.imported);
+    res.json(imported);
+  } catch (error: any) {
+    addSupportLog("PROJECTS", `Project package import failed: ${error.message}`, "error");
+    res.status(400).json({ error: "Import .glowproject impossible", details: error.message });
   }
 });
 

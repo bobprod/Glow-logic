@@ -8,6 +8,8 @@ import DmxSetupWizard from "./DmxSetupWizard";
 import ApcMiniMapper from "./ApcMiniMapper";
 import { testLLMKey, type LLMProvider } from "../../services/llm";
 import { API_BASE } from "../../lib/config";
+import { dmxEngine } from "../../lib/dmxEngine";
+import type { DmxOutputsConfig } from "../../types/dmx";
 import {
   Settings,
   X,
@@ -487,6 +489,17 @@ type BackupConfig = {
   autosaveInterval: number;
 };
 
+function normalizeDmxOutputs(raw: unknown, fallback: DmxOutputsConfig): DmxOutputsConfig {
+  if (!raw || typeof raw !== "object") return fallback;
+  const data = raw as Partial<Record<keyof DmxOutputsConfig, unknown>>;
+  return {
+    qlcOsc: Boolean(data.qlcOsc ?? fallback.qlcOsc),
+    qlcWs: Boolean(data.qlcWs ?? fallback.qlcWs),
+    artNet: Boolean(data.artNet ?? fallback.artNet),
+    usbDmx: Boolean(data.usbDmx ?? fallback.usbDmx),
+  };
+}
+
 type LicenseStatus = {
   mode: "trial" | "activated" | "expired" | "invalid";
   offlineReady: boolean;
@@ -546,6 +559,8 @@ function KeyField({
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const addToast = useStore((s) => s.addToast);
   const setMidiArmed = useStore((s) => s.setMidiArmed);
+  const dmxOutputs = useStore((s) => s.dmxOutputs);
+  const setDmxOutputs = useStore((s) => s.setDmxOutputs);
   const [mounted, setMounted] = useState(false);
   const [scanningMidi, setScanningMidi] = useState(false);
   const [showDmxWizard, setShowDmxWizard] = useState(false);
@@ -627,11 +642,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     useState<ControllerProfile | null>(null);
 
   // -- DMX Output Config --------------------------------------------
-  const [dmxOutputs, setDmxOutputs] = useState({
-    qlcOsc: true,
-    artNet: true,
-    usbDmx: false,
-  });
   const [usbDmxConfig, setUsbDmxConfig] = useState({
     enabled: false,
     portPath: "",
@@ -644,6 +654,16 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     connected: boolean;
     error: string | null;
   } | null>(null);
+
+  useEffect(() => {
+    dmxEngine.setOutputGate(dmxOutputs);
+  }, [dmxOutputs]);
+
+  const updateDmxOutputs = useCallback((outputs: Partial<DmxOutputsConfig>) => {
+    const nextOutputs = { ...dmxOutputs, ...outputs };
+    setDmxOutputs(outputs);
+    dmxEngine.setOutputGate(nextOutputs);
+  }, [dmxOutputs, setDmxOutputs]);
 
   const [backup, setBackup] = useState<BackupConfig>(() => {
     if (typeof window === "undefined") return DEFAULT_BACKUP;
@@ -709,7 +729,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     fetch(`${API_BASE}/api/dmx/router`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (data) setDmxOutputs(data);
+        if (data) updateDmxOutputs(normalizeDmxOutputs(data, dmxOutputs));
       })
       .catch(() => {});
 
@@ -1268,7 +1288,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                             type="checkbox"
                             checked={dmxOutputs.qlcOsc}
                             onChange={(e) =>
-                              setDmxOutputs((p) => ({ ...p, qlcOsc: e.target.checked }))
+                              updateDmxOutputs({ qlcOsc: e.target.checked })
                             }
                             className="w-4 h-4 accent-cyan-500 rounded border-slate-600 bg-slate-800"
                           />
@@ -1286,7 +1306,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                             type="checkbox"
                             checked={dmxOutputs.artNet}
                             onChange={(e) =>
-                              setDmxOutputs((p) => ({ ...p, artNet: e.target.checked }))
+                              updateDmxOutputs({ artNet: e.target.checked })
                             }
                             className="w-4 h-4 accent-cyan-500 rounded border-slate-600 bg-slate-800"
                           />
@@ -1304,7 +1324,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                             type="checkbox"
                             checked={dmxOutputs.usbDmx}
                             onChange={(e) =>
-                              setDmxOutputs((p) => ({ ...p, usbDmx: e.target.checked }))
+                              updateDmxOutputs({ usbDmx: e.target.checked })
                             }
                             className="w-4 h-4 accent-cyan-500 rounded border-slate-600 bg-slate-800"
                           />

@@ -41,6 +41,7 @@ import VisualizerView from "./VisualizerView";
 import PatchPanel from "./PatchPanel";
 import OrchestratorController from "./OrchestratorController";
 import MediaGeneratorPanel from "./MediaGeneratorPanel";
+import ProceduralVjCanvas, { type VjShaderMode } from "./ui/ProceduralVjCanvas";
 import VideoProjectionWindow from "./ui/VideoProjectionWindow";
 import { dmxEngine } from "../lib/dmxEngine";
 import { API_BASE } from "../lib/config";
@@ -251,6 +252,8 @@ export default function SmartDashboard() {
     setSmartWidgets,
     showLock,
     setShowLock,
+    masterDimmer,
+    setMasterDimmer,
     
     // showPlayerSlice
     groupLevels,
@@ -339,6 +342,9 @@ export default function SmartDashboard() {
     armed: Record<string, boolean>;
   } | null>(null);
   const [projectionActive, setProjectionActive] = useState(false);
+  const [vjShaderMode, setVjShaderMode] = useState<VjShaderMode>("gradient");
+  const [vjShaderIntensity, setVjShaderIntensity] = useState(0.72);
+  const vjAudioBandsRef = useRef<[number, number, number]>([0, 0, 0]);
   const [resolumeStatus, setResolumeStatus] = useState<ResolumeStatus | null>(null);
   const [resolumeHost, setResolumeHost] = useState("127.0.0.1");
   const [resolumePort, setResolumePort] = useState(7000);
@@ -479,9 +485,15 @@ export default function SmartDashboard() {
     socket.emit("smart:zone_intensity", {
       zoneId,
       groupName: backendGroup,
-      value: Math.round((level / 100) * 255),
+      value: Math.round(((level / 100) * 255) * (masterDimmer / 255)),
     });
-  }, []);
+  }, [masterDimmer]);
+
+  useEffect(() => {
+    Object.entries(groupLevels).forEach(([groupName, level]) => {
+      emitLiveGroupIntensity(groupName, level);
+    });
+  }, [emitLiveGroupIntensity, groupLevels]);
 
   // Ensure core widgets are always visible and expanded (fix stale persisted state)
   useEffect(() => {
@@ -587,7 +599,7 @@ export default function SmartDashboard() {
 
     // 1. Renvoyer les intensités des zones
     Object.entries(zoneValues).forEach(([zoneKey, rawValue]) => {
-      const value255 = Math.round((rawValue / 100) * 255);
+      const value255 = Math.round(((rawValue / 100) * 255) * (masterDimmer / 255));
       const map = ZONE_MAP[zoneKey];
       if (map) {
         socket.emit("smart:zone_intensity", {
@@ -637,12 +649,12 @@ export default function SmartDashboard() {
         });
         if (activePad.dmxValues) {
           Object.entries(activePad.dmxValues).forEach(([chStr, val]) => {
-            dmxEngine.setChannel(1, Number(chStr), Number(val));
+            dmxEngine.setChannel(1, Number(chStr), Math.round(Number(val) * (masterDimmer / 255)));
           });
         }
       }
     }
-  }, [socketConnected, fixtures, zoneValues, smartZoneMappings, activeScene, pads]);
+  }, [socketConnected, fixtures, zoneValues, smartZoneMappings, activeScene, pads, masterDimmer]);
 
   // Modal "New Scene"
   const [showModal, setShowModal] = useState(false);
@@ -659,7 +671,7 @@ export default function SmartDashboard() {
   const handleZoneChange = useCallback(
     (zoneKey: string, rawValue: number) => {
       setSmartZoneValue(zoneKey, rawValue);
-      const value255 = Math.round((rawValue / 100) * 255);
+      const value255 = Math.round(((rawValue / 100) * 255) * (masterDimmer / 255));
 
       // Emit QLC+ zone intensity socket event for compatibility
       const map = ZONE_MAP[zoneKey];
@@ -709,7 +721,7 @@ export default function SmartDashboard() {
         }
       });
     },
-    [setSmartZoneValue, smartZoneMappings, fixtures],
+    [setSmartZoneValue, smartZoneMappings, fixtures, masterDimmer],
   );
 
   // Synchronize zone sliders with physical DMX values when changed externally (dmx_sync)
@@ -1016,8 +1028,28 @@ export default function SmartDashboard() {
   // Render sub-widgets
   const renderGroupStrips = () => {
     const groups = ['Face', 'Douche 1', 'Douche 2', 'Douche 3', 'Latéral', 'Contre'];
+    const masterPercent = Math.round((masterDimmer / 255) * 100);
     return (
-      <div className="dmx-groups-mixer grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 items-end">
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-black/25 rounded-xl p-3.5 border border-white/5">
+          <div className="min-w-[130px]">
+            <p className="text-[10px] font-black uppercase tracking-widest text-cyan-400">Master dimmer</p>
+            <p className="text-[10px] text-slate-500">Scale global DMX</p>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="255"
+            value={masterDimmer}
+            onChange={(event) => setMasterDimmer(Number(event.target.value))}
+            className="flex-1 min-w-[180px] accent-cyan-400"
+          />
+          <span className="w-14 text-right text-cyan-300 text-xs font-mono font-black">
+            {masterPercent}%
+          </span>
+        </div>
+
+        <div className="dmx-groups-mixer grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 items-end">
         {groups.map((groupName) => {
           const val = groupLevels[groupName] ?? 80;
           const isMuted = groupMutes[groupName] === true;
@@ -1080,6 +1112,7 @@ export default function SmartDashboard() {
             </div>
           );
         })}
+        </div>
       </div>
     );
   };
@@ -1709,6 +1742,56 @@ export default function SmartDashboard() {
             </span>
           </div>
 
+          <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_180px]">
+            <div className="relative aspect-video min-h-[180px] overflow-hidden rounded-xl border border-white/10 bg-black">
+              <ProceduralVjCanvas
+                mode={vjShaderMode}
+                bpm={bpm}
+                intensity={vjShaderIntensity}
+                playing={isPlaying}
+                audioBandsRef={vjAudioBandsRef}
+              />
+              <div className="pointer-events-none absolute left-3 top-3 rounded-lg border border-white/10 bg-black/50 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-white/80">
+                GPU {vjShaderMode}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2">
+              {[
+                ["gradient", "Noise"],
+                ["waves", "Waves"],
+                ["strobe", "Strobe"],
+              ].map(([mode, label]) => (
+                <button
+                  key={mode}
+                  onClick={() => setVjShaderMode(mode as VjShaderMode)}
+                  className={`min-h-[42px] rounded-xl border px-3 text-left text-xs font-black transition-all ${
+                    vjShaderMode === mode
+                      ? "border-pink-500/45 bg-pink-500/15 text-white"
+                      : "border-white/10 bg-black/35 text-slate-400 hover:border-white/20 hover:text-white"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+
+              <label className="rounded-xl border border-white/10 bg-black/30 p-3">
+                <span className="mb-2 block text-[9px] font-black uppercase tracking-widest text-slate-500">
+                  Intensite shader
+                </span>
+                <input
+                  type="range"
+                  min={0.15}
+                  max={1}
+                  step={0.01}
+                  value={vjShaderIntensity}
+                  onChange={(event) => setVjShaderIntensity(Number(event.target.value))}
+                  className="w-full accent-pink-400"
+                />
+              </label>
+            </div>
+          </div>
+
           <div className="rounded-xl bg-[#0a0c10] border border-white/5 p-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -1882,6 +1965,11 @@ export default function SmartDashboard() {
     if (!ctx) return;
     
     const freqHandler = (freqs: number[]) => {
+      vjAudioBandsRef.current = [
+        Math.max(0, Math.min(255, freqs[0] ?? 0)),
+        Math.max(0, Math.min(255, freqs[1] ?? 0)),
+        Math.max(0, Math.min(255, freqs[2] ?? 0)),
+      ];
       if (!ctx || !canvas) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const colors = ["#06b6d4", "#eab308", "#ec4899"];

@@ -4,6 +4,12 @@ import { effectEngine, EffectConfig } from './EffectEngine';
 
 type ChannelMap = Map<number, number>;
 type DmxSource = 'manual' | 'timeline' | 'background';
+type DmxOutputGate = {
+    qlcOsc: boolean;
+    qlcWs: boolean;
+    artNet: boolean;
+    usbDmx: boolean;
+};
 
 interface DmxWriteOptions {
     source?: DmxSource;
@@ -32,6 +38,7 @@ class DmxEngine {
     private locks = new Map<string, { priority: number; until: number; source: DmxSource }>();
     readonly FPS = 44;
     private started = false;
+    private outputGate: DmxOutputGate = { qlcOsc: true, qlcWs: false, artNet: true, usbDmx: false };
 
     constructor() {
         if (typeof window !== 'undefined') {
@@ -246,7 +253,19 @@ class DmxEngine {
         return this.started;
     }
 
+    setOutputGate(outputs: Partial<DmxOutputGate>) {
+        this.outputGate = { ...this.outputGate, ...outputs };
+    }
+
+    getOutputGate(): DmxOutputGate {
+        return { ...this.outputGate };
+    }
+
     private flush() {
+        if (!this.outputGate.qlcOsc && !this.outputGate.qlcWs && !this.outputGate.artNet && !this.outputGate.usbDmx) {
+            return;
+        }
+
         this.frames.forEach((chMap, universe) => {
             if (!this.prev.has(universe)) this.prev.set(universe, new Map());
             const prevMap = this.prev.get(universe)!;

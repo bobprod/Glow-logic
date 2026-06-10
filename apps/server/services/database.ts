@@ -4,6 +4,7 @@ import path from "path";
 // Local database file path
 const dbPath = path.resolve(__dirname, "../../glow_logic.db");
 const db = new Database(dbPath);
+export const getDatabasePath = () => dbPath;
 
 // Initialize schema
 db.exec(`

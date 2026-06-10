@@ -40,6 +40,11 @@ export default function GuidedTour() {
       body: "Lance les looks du show au doigt, a la souris ou depuis un controleur MIDI. Pour debuter vite, commence par les templates puis ajuste.",
     },
     {
+      selector: ".scene-pads-grid",
+      title: "Configuration du pad",
+      body: "Fais un clic droit sur un pad pour lui assigner une couleur, une icone, une note MIDI ou une commande DMX precise.",
+    },
+    {
       selector: ".dmx-groups-mixer",
       title: "Groupes DMX",
       body: "Regle les familles de projecteurs comme une petite console: intensite, couleur et mute sans toucher aux adresses DMX.",

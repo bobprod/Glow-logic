@@ -54,6 +54,10 @@ export default function TopBar() {
     setIsSidebarVisible,
     smartBlackout,
     setSmartBlackout,
+    laserArmed,
+    pyroArmed,
+    setLaserArmed,
+    setPyroArmed,
     bpm,
     setBpm,
     currentProjectName,
@@ -95,6 +99,24 @@ export default function TopBar() {
     const t = setInterval(check, 3000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    const refreshSafetyStatus = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/safety/status`);
+        if (!response.ok) return;
+        const status = await response.json() as { laserArmed?: boolean; pyroArmed?: boolean };
+        setLaserArmed(Boolean(status.laserArmed));
+        setPyroArmed(Boolean(status.pyroArmed));
+      } catch {
+        // The local store remains the source of truth if the backend is offline.
+      }
+    };
+
+    refreshSafetyStatus();
+    const timer = setInterval(refreshSafetyStatus, 3000);
+    return () => clearInterval(timer);
+  }, [setLaserArmed, setPyroArmed]);
 
   useEffect(() => {
     const applySyncStatus = (state: SyncStatus) => {
@@ -515,6 +537,34 @@ export default function TopBar() {
             }}
           />
           DMX
+        </div>
+
+        <div
+          title={`Laser ${laserArmed ? "arme" : "desarme"}`}
+          className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all cursor-default ${
+            laserArmed
+              ? "bg-red-500/10 border-red-500/35 text-red-300"
+              : "bg-green-500/10 border-green-500/25 text-green-400"
+          }`}
+        >
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${laserArmed ? "bg-red-400 shadow-[0_0_7px_#f87171]" : "bg-green-400"}`}
+          />
+          LASER
+        </div>
+
+        <div
+          title={`Pyro ${pyroArmed ? "arme" : "desarme"}`}
+          className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all cursor-default ${
+            pyroArmed
+              ? "bg-red-500/10 border-red-500/35 text-red-300"
+              : "bg-green-500/10 border-green-500/25 text-green-400"
+          }`}
+        >
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${pyroArmed ? "bg-red-400 shadow-[0_0_7px_#f87171]" : "bg-green-400"}`}
+          />
+          PYRO
         </div>
 
         <div className="relative">

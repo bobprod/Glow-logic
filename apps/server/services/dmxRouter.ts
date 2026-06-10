@@ -47,7 +47,9 @@ class DmxRouter {
     const clampedValue = Math.max(0, Math.min(255, Math.round(value)));
 
     // Python DMX Bridge (primary — uses SetCommBreak Windows API, confirmed working)
-    try { pythonDmx.setChannel(universe, channel, clampedValue); } catch {}
+    if (this.config.usbDmx) {
+      try { pythonDmx.setChannel(universe, channel, clampedValue); } catch {}
+    }
 
     // QLC+ Engine (secondary — disabled until QLC+ is fixed)
     // try { qlcEngine.setChannel(universe, channel, clampedValue); } catch {}

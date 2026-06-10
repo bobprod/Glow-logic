@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { API_BASE } from "../../lib/config";
+import useStore from "../../store/useStore";
 import {
   X,
   Network,
@@ -44,10 +45,27 @@ interface ComPort {
   manufacturer?: string;
 }
 
+function isNetworkAdapter(value: unknown): value is NetworkAdapter {
+  if (!value || typeof value !== "object") return false;
+  const adapter = value as Record<string, unknown>;
+  return typeof adapter.name === "string" && typeof adapter.description === "string";
+}
+
+function isDiscoveredNode(value: unknown): value is DiscoveredNode {
+  if (!value || typeof value !== "object") return false;
+  const node = value as Record<string, unknown>;
+  return typeof node.ip === "string" && typeof node.shortName === "string";
+}
+
 export default function DmxSetupWizard({ onClose, onSuccess }: DmxSetupWizardProps) {
+  const networkState = useStore((state) => state.networkState);
+  const setNetworkState = useStore((state) => state.setNetworkState);
+  const setDmxOutputs = useStore((state) => state.setDmxOutputs);
   const [step, setStep] = useState<number>(1);
-  const [adapters, setAdapters] = useState<NetworkAdapter[]>([]);
-  const [selectedAdapter, setSelectedAdapter] = useState<NetworkAdapter | null>(null);
+  const [adapters, setAdapters] = useState<NetworkAdapter[]>(() => networkState.adapters.filter(isNetworkAdapter));
+  const [selectedAdapter, setSelectedAdapter] = useState<NetworkAdapter | null>(() => (
+    isNetworkAdapter(networkState.activeAdapter) ? networkState.activeAdapter : null
+  ));
   const [loadingAdapters, setLoadingAdapters] = useState(false);
   
   // IP Config step states
@@ -57,7 +75,7 @@ export default function DmxSetupWizard({ onClose, onSuccess }: DmxSetupWizardPro
 
   // Discovery step states
   const [searchingNodes, setSearchingNodes] = useState(false);
-  const [discoveredNodes, setDiscoveredNodes] = useState<DiscoveredNode[]>([]);
+  const [discoveredNodes, setDiscoveredNodes] = useState<DiscoveredNode[]>(() => networkState.discoveredNodes.filter(isDiscoveredNode));
   const [selectedNode, setSelectedNode] = useState<DiscoveredNode | null>(null);
 
   // USB/Node step states
@@ -90,11 +108,13 @@ export default function DmxSetupWizard({ onClose, onSuccess }: DmxSetupWizardPro
     try {
       const res = await fetch(`${API_BASE}/api/network/adapters`);
       if (res.ok) {
-        const data = await res.ok ? await res.json() : [];
+        const data = await res.json() as NetworkAdapter[];
         setAdapters(data);
         // Auto-select first active or plugged card
         const firstPlugged = data.find((a: NetworkAdapter) => a.status === "Up");
-        if (firstPlugged) setSelectedAdapter(firstPlugged);
+        const activeAdapter = firstPlugged || data[0] || null;
+        if (activeAdapter) setSelectedAdapter(activeAdapter);
+        setNetworkState({ adapters: data, activeAdapter });
       }
     } catch (err) {
       console.error("Failed to load adapters:", err);
@@ -125,7 +145,11 @@ export default function DmxSetupWizard({ onClose, onSuccess }: DmxSetupWizardPro
         // Refresh adapters
         await loadAdapters();
         // Update selected adapter object with new IP
-        setSelectedAdapter(prev => prev ? { ...prev, ip: "2.0.0.1" } : null);
+        setSelectedAdapter(prev => {
+          const updated = prev ? { ...prev, ip: "2.0.0.1" } : null;
+          setNetworkState({ activeAdapter: updated });
+          return updated;
+        });
         // Advance after brief success screen
         setTimeout(() => setStep(4), 1500);
       } else {
@@ -146,6 +170,7 @@ export default function DmxSetupWizard({ onClose, onSuccess }: DmxSetupWizardPro
       if (res.ok) {
         const data = await res.json();
         setDiscoveredNodes(data);
+        setNetworkState({ discoveredNodes: data });
         if (data.length > 0) {
           setSelectedNode(data[0]);
         }
@@ -217,6 +242,7 @@ export default function DmxSetupWizard({ onClose, onSuccess }: DmxSetupWizardPro
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ artNet: true, usbDmx: false })
         });
+        setDmxOutputs({ artNet: true, usbDmx: false });
 
         onSuccess("artnet", targetIp);
       } else {
@@ -243,6 +269,7 @@ export default function DmxSetupWizard({ onClose, onSuccess }: DmxSetupWizardPro
         });
 
         onSuccess("usb", selectedComPort);
+        setDmxOutputs({ artNet: false, usbDmx: true });
       }
       onClose();
     } catch (err) {
@@ -375,7 +402,10 @@ export default function DmxSetupWizard({ onClose, onSuccess }: DmxSetupWizardPro
                         return (
                           <div
                             key={adapter.name}
-                            onClick={() => setSelectedAdapter(adapter)}
+                            onClick={() => {
+                              setSelectedAdapter(adapter);
+                              setNetworkState({ activeAdapter: adapter });
+                            }}
                             className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
                               isSelected
                                 ? "bg-cyan-500/10 border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.1)]"

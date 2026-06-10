@@ -193,7 +193,7 @@ function normalizeImportedPack(rawPack: any) {
         smartZoneValues: {},
         smartZoneMappings: {},
         midiMappings: {},
-        dmxOutputs: { qlcWs: true, artNet: false, usbDmx: false },
+        dmxOutputs: { qlcOsc: true, qlcWs: false, artNet: true, usbDmx: false },
         networkState: { adapters: [], activeAdapter: null, discoveredNodes: [] },
         appMode: 'smart',
         proView: 'canvas',
