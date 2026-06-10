@@ -1749,6 +1749,10 @@ export default function SmartDashboard() {
                 bpm={bpm}
                 intensity={vjShaderIntensity}
                 playing={isPlaying}
+                colorShift={0}
+                speed={1}
+                scale={1}
+                audioReactive={true}
                 audioBandsRef={vjAudioBandsRef}
               />
               <div className="pointer-events-none absolute left-3 top-3 rounded-lg border border-white/10 bg-black/50 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-white/80">

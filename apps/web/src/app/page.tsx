@@ -19,19 +19,22 @@ import ColorPickerNode from "../components/nodes/ColorPickerNode";
 import FixtureNode from "../components/nodes/FixtureNode";
 import Sidebar from "../components/Sidebar";
 
-import SmartDashboard from "../components/SmartDashboard";
-import MacroTimeline from "../components/MacroTimeline";
+import { Suspense, lazy } from "react";
 import TopBar from "../components/TopBar";
-import VisualizerView from "../components/VisualizerView";
-import PatchPanel from "../components/PatchPanel";
-import FixtureController from "../components/FixtureController";
-import OrchestratorController from "../components/OrchestratorController";
 import MidiListener from "../components/MidiListener";
 import { ToastContainer } from "../components/ui/ToastContainer";
-import GuidedTour from "../components/ui/GuidedTour";
 import { socket } from "../lib/socket";
 import { useAutosave } from "../hooks/useAutosave";
 import { useCrashRecovery } from "../hooks/useCrashRecovery";
+
+// Lazy loading for heavy components
+const SmartDashboard = lazy(() => import("../components/SmartDashboard"));
+const MacroTimeline = lazy(() => import("../components/MacroTimeline"));
+const VisualizerView = lazy(() => import("../components/VisualizerView"));
+const PatchPanel = lazy(() => import("../components/PatchPanel"));
+const FixtureController = lazy(() => import("../components/FixtureController"));
+const OrchestratorController = lazy(() => import("../components/OrchestratorController"));
+const GuidedTour = lazy(() => import("../components/ui/GuidedTour"));
 
 // Custom node types
 const nodeTypes = {
@@ -383,11 +386,17 @@ export default function LogicCanvas() {
     <div className="flex flex-col w-screen h-screen bg-black overflow-hidden relative select-none">
       <MidiListener />
       <ToastContainer />
-      <GuidedTour />
+      <Suspense fallback={null}>
+        <GuidedTour />
+      </Suspense>
       <TopBar />
 
       <div className="flex-1 flex overflow-hidden relative">
-        {appMode === "smart" && <SmartDashboard />}
+        {appMode === "smart" && (
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading Smart Dashboard...</div>}>
+            <SmartDashboard />
+          </Suspense>
+        )}
         {appMode === "creator" && (
           <div className="relative flex-1 flex overflow-hidden bg-[#07090e]">
             {/* Main Workspace + Horizontal Bottom Panel */}
@@ -395,9 +404,13 @@ export default function LogicCanvas() {
               {/* Central Viewport */}
               <div className="flex-1 flex overflow-hidden relative min-h-0">
                 {proView === "visualizer" ? (
-                  <VisualizerView />
+                  <Suspense fallback={<div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading 3D Visualizer...</div>}>
+                    <VisualizerView />
+                  </Suspense>
                 ) : proView === "patch" ? (
-                  <PatchPanel />
+                  <Suspense fallback={<div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading Patch Panel...</div>}>
+                    <PatchPanel />
+                  </Suspense>
                 ) : (
                   <ReactFlowProvider>
                     {isSidebarVisible && <Sidebar />}
@@ -419,7 +432,9 @@ export default function LogicCanvas() {
                   </button>
 
                   <div className="flex-1 overflow-hidden h-full">
-                    <FixtureController className="h-full border-0 rounded-none bg-transparent" />
+                    <Suspense fallback={<div className="h-full flex items-center justify-center text-slate-500 text-sm">Loading Fixture Controller...</div>}>
+                      <FixtureController className="h-full border-0 rounded-none bg-transparent" />
+                    </Suspense>
                   </div>
                 </div>
               )}
@@ -484,7 +499,11 @@ export default function LogicCanvas() {
 
                 {/* Tab content wrapper */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
-                  {activeRightTab === "ai" && <OrchestratorController />}
+                  {activeRightTab === "ai" && (
+                    <Suspense fallback={<div className="flex items-center justify-center text-slate-500 text-sm py-8">Loading AI Orchestrator...</div>}>
+                      <OrchestratorController />
+                    </Suspense>
+                  )}
                   {activeRightTab === "scenes" && (
                     <div className="rounded-2xl border border-cyan-500/15 bg-cyan-500/[0.04] p-4">
                       <p className="text-white text-xs font-black uppercase tracking-widest mb-2">
@@ -522,7 +541,9 @@ export default function LogicCanvas() {
           </div>
         )}
       </div>
-      <MacroTimeline />
+      <Suspense fallback={<div className="h-[200px] flex items-center justify-center text-slate-500 text-sm">Loading Timeline...</div>}>
+        <MacroTimeline />
+      </Suspense>
     </div>
   );
 }
