@@ -5,6 +5,11 @@ import { useEffect } from "react";
 import useStore from "../store/useStore";
 import { socket } from "../lib/socket";
 import { dmxEngine } from "../lib/dmxEngine";
+import {
+  colorToVelocity,
+  getControllerProfile,
+  matchControllerByPortName,
+} from "../lib/controllerProfiles";
 
 export default function MidiListener() {
   useEffect(() => {
@@ -12,55 +17,14 @@ export default function MidiListener() {
     // Keep track of outputs for feedback
     let midiOutputs: any[] = [];
 
-    // Load controller profile for LED colors
-    let ledColors: Record<string, number> = {
-      off: 0,
-      green: 1,
-      red: 3,
-      yellow: 5,
-    };
-    try {
-      const midiCfg = JSON.parse(
-        localStorage.getItem("glowlogic_midi") ?? "{}",
-      );
-      if (midiCfg.controllerId) {
-        // Known profiles LED colors
-        const profiles: Record<string, Record<string, number>> = {
-          "akai-apc-mini": {
-            off: 0,
-            green: 1,
-            "green-blink": 2,
-            red: 3,
-            "red-blink": 4,
-            yellow: 5,
-          },
-          "akai-apc-40": { off: 0, green: 1, red: 3, yellow: 5 },
-          "novation-launchpad-mini": {
-            off: 12,
-            red: 15,
-            green: 60,
-            yellow: 62,
-            amber: 63,
-          },
-          "novation-launch-control-xl": {
-            off: 12,
-            red: 15,
-            green: 60,
-            yellow: 62,
-          },
-          "arturia-minilab": { off: 0, on: 127 },
-          "behringer-x-touch-mini": { off: 0, on: 127 },
-        };
-        if (profiles[midiCfg.controllerId]) {
-          ledColors = profiles[midiCfg.controllerId];
-        }
+    // Lecture défensive de la config MIDI persistée (clé "glowlogic_midi").
+    const readMidiConfig = (): any => {
+      try {
+        return JSON.parse(localStorage.getItem("glowlogic_midi") ?? "{}") || {};
+      } catch {
+        return {};
       }
-    } catch {
-      /* ignore */
-    }
-
-    const getActiveColor = () => ledColors["green"] ?? ledColors["on"] ?? 1;
-    const getOffColor = () => ledColors["off"] ?? 0;
+    };
 
     const findPadByControlId = (state: any, controlId: string) => {
       const parts = controlId.split("_");
@@ -115,36 +79,66 @@ export default function MidiListener() {
     const updateLEDFeedback = (state: any) => {
       if (!midiOutputs || midiOutputs.length === 0) return;
 
+      const cfg = readMidiConfig();
+
+      // 4. Garde : ne rien envoyer si le feedback LED est désactivé.
+      // Défaut true si le flag est absent (ne pas casser l'existant).
+      if (cfg.enableLedFeedback === false) return;
+
+      // 1. Profil contrôleur : depuis controllerId, sinon déduit du nom du 1er
+      //    output, sinon fallback "generic".
+      let profile = getControllerProfile(cfg.controllerId);
+      if (!cfg.controllerId) {
+        const firstName = midiOutputs[0]?.name ?? "";
+        const matched = matchControllerByPortName(firstName);
+        if (matched) profile = matched;
+      }
+
+      // 2. Output(s) cible(s) : un seul si outputId défini, sinon tous.
+      let targets: any[] = midiOutputs;
+      if (cfg.outputId) {
+        const found = midiOutputs.find((o: any) => o.id === cfg.outputId);
+        targets = found ? [found] : [];
+      }
+      if (targets.length === 0) return;
+
       const activeScene = state.smartActiveScene;
       const mappings = state.midiMappings;
 
-      // 1. Update standard learned mappings
+      // 3. Pads : vraie couleur du Look + clignotement du pad actif.
       for (const [controlId, mapping] of Object.entries(mappings)) {
         if (controlId.startsWith("pad_") && (mapping as any).type === 144) {
           const pad = findPadByControlId(state, controlId);
+          const isActive = pad ? activeScene === pad.qlcWidget : false;
+          const velocity = pad
+            ? colorToVelocity(profile.id, pad.color, isActive)
+            : 0;
 
-          if (pad) {
-            const isActive = activeScene === pad.qlcWidget;
-            const velocity = isActive ? getActiveColor() : getOffColor();
-
-            midiOutputs.forEach((output: any) => {
+          targets.forEach((output: any) => {
+            try {
               output.send([144, (mapping as any).data1, velocity]);
-            });
-          }
+            } catch {
+              /* ignore send failures */
+            }
+          });
         }
       }
 
-      // 2. Auto feedback for AKAI APC mini mutes (Note 64-69)
+      // 5. Auto feedback for AKAI APC mini mutes (Note 64-69) — inchangé.
       const groupMutes = state.groupMutes || {};
       const groups = sortedDmxGroups(state).slice(0, 6);
-      
+
       groups.forEach((group, idx) => {
         const isMuted = groupMutes[group.id] === true;
-        const note = 64 + idx; 
-        const velocity = isMuted ? 3 : 1; 
-        
-        midiOutputs.forEach((output: any) => {
-          output.send([144, note, velocity]);
+        const note = 64 + idx;
+        const velocity = isMuted ? 3 : 1;
+
+        targets.forEach((output: any) => {
+          try {
+            output.send([144, note, velocity]);
+          } catch {
+            /* ignore send failures */
+          }
         });
       });
     };

@@ -311,6 +311,7 @@ type MidiConfig = {
   channel: number;
   clockOut: boolean;
   controllerId: string;
+  enableLedFeedback: boolean;
 };
 
 const DEFAULT_MIDI: MidiConfig = {
@@ -319,6 +320,7 @@ const DEFAULT_MIDI: MidiConfig = {
   channel: 1,
   clockOut: false,
   controllerId: "",
+  enableLedFeedback: true,
 };
 
 type ControllerProfile = {
@@ -1643,6 +1645,23 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                           </label>
                         </div>
                       </div>
+
+                      <label className="flex items-center justify-between bg-black/20 border border-white/5 rounded-xl px-3.5 py-3 cursor-pointer hover:border-white/10 transition-colors">
+                        <span className="text-xs text-slate-300">
+                          Feedback LED (allumer les pads du contrôleur)
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={midi.enableLedFeedback}
+                          onChange={(e) =>
+                            setMidi((m) => ({
+                              ...m,
+                              enableLedFeedback: e.target.checked,
+                            }))
+                          }
+                          className="accent-cyan-500 w-4 h-4"
+                        />
+                      </label>
                     </div>
 
                     {/* Controller Profile */}
