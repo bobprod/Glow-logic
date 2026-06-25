@@ -133,6 +133,29 @@ async function main() {
     dmxRouter.setOutputs({ usbDmx: true, qlcWs: true, python: true, artNet: false, qlcOsc: false });
   });
 
+  // (h) sACN / E1.31 : UN seul paquet par univers dirty (miroir du test Art-Net).
+  check("(h) sACN : 5 canaux dirty = 1 seul envoi d'univers", () => {
+    dmxRouter.setOutputs({ sacn: true, artNet: false, usbDmx: false, qlcWs: false, python: false, qlcOsc: false });
+    resetCounters();
+    const U = 97;
+    for (let ch = 1; ch <= 5; ch += 1) dmxRouter.setChannel(U, ch, ch * 7);
+    dmxRouter.flushNow();
+    assert.equal(emits.sacn || 0, 1, `sACN émis ${emits.sacn || 0} fois (attendu 1 paquet/univers)`);
+    // restaure la config des autres checks
+    dmxRouter.setOutputs({ sacn: false, usbDmx: true, qlcWs: true, python: true, artNet: false, qlcOsc: false });
+  });
+
+  // (i) INVARIANT : sacn désactivé => aucun paquet sACN.
+  check("(i) sACN désactivé : 0 envoi", () => {
+    dmxRouter.setOutputs({ sacn: false, artNet: false, usbDmx: false, qlcWs: false, python: false, qlcOsc: false });
+    resetCounters();
+    const U = 98;
+    for (let ch = 1; ch <= 5; ch += 1) dmxRouter.setChannel(U, ch, ch * 3);
+    dmxRouter.flushNow();
+    assert.equal(emits.sacn || 0, 0, `sACN émis ${emits.sacn || 0} fois (attendu 0 — sortie désactivée)`);
+    dmxRouter.setOutputs({ usbDmx: true, qlcWs: true, python: true, artNet: false, qlcOsc: false });
+  });
+
   console.log(failures === 0 ? "\n✅ dmxRouter-smoke : tous les checks passent" : `\n❌ dmxRouter-smoke : ${failures} échec(s)`);
   process.exit(failures === 0 ? 0 : 1);
 }

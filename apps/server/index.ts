@@ -3,6 +3,7 @@ import multer from "multer";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { initArtNetHost, updateArtNetTarget } from "./services/artnet";
+import { initSacn, updateSacnTarget } from "./services/sacn";
 import { dmxRouter } from "./services/dmxRouter";
 import { usbDmx } from "./services/usbDmx";
 import { qlcWs } from "./services/qlcWsService";
@@ -439,6 +440,7 @@ app.post("/api/settings", (req, res) => {
     }
     // Propagate host change to Art-Net service immediately
     if (entries.qlc_host) updateArtNetTarget(entries.qlc_host);
+    if (entries.sacn_host) updateSacnTarget(entries.sacn_host);
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: "Erreur sauvegarde settings" });
@@ -1603,6 +1605,7 @@ export function startServer(port = PORT) {
     }
 
   initArtNetHost();
+  initSacn();
   usbDmx.loadConfig();
   dmxRouter.loadConfig();
 

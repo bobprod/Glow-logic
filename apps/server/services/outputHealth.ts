@@ -3,7 +3,7 @@ import { pythonDmx } from "./pythonDmx";
 import { qlcWs } from "./qlcWsService";
 import { usbDmx } from "./usbDmx";
 
-export type OutputId = "python" | "qlcOsc" | "qlcWs" | "artNet" | "usbDmx";
+export type OutputId = "python" | "qlcOsc" | "qlcWs" | "artNet" | "usbDmx" | "sacn";
 export type OutputHealthState = "ok" | "degraded" | "error" | "off";
 
 export interface OutputState {
@@ -26,9 +26,10 @@ export interface OutputConfig {
   artNet: boolean;
   usbDmx: boolean;
   python: boolean;
+  sacn: boolean;
 }
 
-const OUTPUT_IDS: OutputId[] = ["python", "qlcOsc", "qlcWs", "artNet", "usbDmx"];
+const OUTPUT_IDS: OutputId[] = ["python", "qlcOsc", "qlcWs", "artNet", "usbDmx", "sacn"];
 const ERROR_WINDOW_MS = 5000;
 const DEGRADED_WINDOW_MS = 30000;
 const LOG_THROTTLE_MS = 5000;
@@ -58,6 +59,7 @@ class OutputHealth {
     qlcWs: emptyRawState(),
     artNet: emptyRawState(),
     usbDmx: emptyRawState(),
+    sacn: emptyRawState(),
   };
   private listeners = new Set<() => void>();
   private notifyTimer: ReturnType<typeof setTimeout> | null = null;

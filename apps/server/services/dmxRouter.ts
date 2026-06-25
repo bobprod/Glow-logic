@@ -1,5 +1,6 @@
 import { sendDmxValue } from "./qlc";
 import { sendArtNetUniverse } from "./artnet";
+import { sendSacnUniverse } from "./sacn";
 import { usbDmx } from "./usbDmx";
 import { qlcWs } from "./qlcWsService";
 import { pythonDmx } from "./pythonDmx";
@@ -18,12 +19,13 @@ interface OutputConfig {
   artNet: boolean;
   usbDmx: boolean;
   python: boolean;
+  sacn: boolean;
 }
 
 type OutputId = keyof OutputConfig;
 
 class DmxRouter {
-  private config: OutputConfig = { qlcOsc: false, qlcWs: false, artNet: true, usbDmx: false, python: false };
+  private config: OutputConfig = { qlcOsc: false, qlcWs: false, artNet: true, usbDmx: false, python: false, sacn: false };
   private universes = new Map<number, Uint8Array>();
   private pendingUniverses = new Map<number, Uint8Array>();
   private dirtyChannels = new Map<number, Set<number>>();
@@ -43,6 +45,7 @@ class DmxRouter {
     this.config.artNet = true;
     this.config.usbDmx = usbDmx.getStatus().connected;
     this.config.python = usbDmx.getStatus().connected;
+    this.config.sacn = getSetting("sacn_enabled") === "true";
     this.warnOnSerialConflict();
     this.setPatchFromSetting();
     outputHealth.reportConfigChange();
@@ -260,6 +263,11 @@ class DmxRouter {
       // (et non un paquet complet par canal modifié — fix anti-flood réseau).
       if (this.config.artNet) {
         this.reportOutput("artNet", () => sendArtNetUniverse(universe, committed));
+      }
+
+      // sACN / E1.31 : un seul paquet par univers dirty et par frame (calqué sur Art-Net).
+      if (this.config.sacn) {
+        this.reportOutput("sacn", () => sendSacnUniverse(universe, committed));
       }
 
       if (this.config.usbDmx) {
