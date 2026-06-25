@@ -39,7 +39,7 @@ const StagePlan = lazy(() => import("./smart/StagePlan"));
 const FixtureController = lazy(() => import("./FixtureController"));
 const GuidedTour = lazy(() => import("./ui/GuidedTour"));
 const LivePerformanceView = lazy(() => import("./smart/LivePerformanceView"));
-const SceneController = lazy(() => import("./smart/SceneController"));
+const LooksBoard = lazy(() => import("./smart/LooksBoard"));
 const FixturesPage = lazy(() => import("./FixturesPage"));
 const OrchestratorController = lazy(() => import("./OrchestratorController"));
 
@@ -724,8 +724,8 @@ export default function AppShell({ routeMode }: AppShellProps = {}) {
                   </button>
                 </div>
                 <div className="flex-1 min-h-0 overflow-hidden">
-                  <Suspense fallback={<div className="h-full flex items-center justify-center text-slate-500 text-sm">Loading Scenes...</div>}>
-                    <SceneController variant="sidebar" />
+                  <Suspense fallback={<div className="h-full flex items-center justify-center text-slate-500 text-sm">Loading Looks...</div>}>
+                    <LooksBoard onCreateWithAi={() => setAiPanelOpen(true)} />
                   </Suspense>
                 </div>
               </div>
