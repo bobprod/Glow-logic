@@ -12,6 +12,8 @@
 // sont gardés derrière un guard navigateur.
 // ─────────────────────────────────────────────────────────────────────────
 
+import { inferFixtureCategory, type FixtureCategoryId } from "./fixtureCategories";
+
 // Types de canaux RÉELS de l'app (cf. FixturesPage DMX_TYPES).
 // On n'invente aucune valeur hors de cette liste ; fallback générique = "other".
 export const APP_CHANNEL_TYPES = [
@@ -109,6 +111,7 @@ export interface AppFixturePayload {
   channels: AppFixtureChannel[];   // canaux du mode choisi
   total_channels: number;
   modes: AppFixtureMode[];         // tous les modes (le mode choisi inclus)
+  category: FixtureCategoryId;     // famille inférée (lyre/par/laser…)
 }
 
 // ─── Conversion d'un mode GDTF → payload fixture app ─────────────────────
@@ -139,6 +142,12 @@ export function toAppFixture(
     };
   });
 
+  // Catégorie inférée depuis le nom + la signature des canaux du mode choisi.
+  const category = inferFixtureCategory(
+    `${parsed.manufacturer} ${parsed.name}`.trim(),
+    channels.map((c) => c.type),
+  );
+
   return {
     name: parsed.name,
     manufacturer: parsed.manufacturer || undefined,
@@ -146,6 +155,7 @@ export function toAppFixture(
     channels,
     total_channels: channels.length,
     modes,
+    category,
   };
 }
 

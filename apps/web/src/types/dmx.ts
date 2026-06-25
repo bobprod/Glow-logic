@@ -1,3 +1,5 @@
+import type { FixtureCategoryId } from "../lib/fixtureCategories";
+
 export type DmxChannelType =
   | "dimmer"
   | "pan"
@@ -62,6 +64,9 @@ export interface PatchedFixture {
   totalChannels?: number;
   color?: string;
   nodeType?: string;
+  // Famille d'équipement (lyre/laser/fumigène…) — cf. lib/fixtureCategories.
+  // Optionnel : absent = catégorie à inférer/non renseignée (rétro-compatible).
+  category?: FixtureCategoryId;
   channels: DmxChannel[];
 }
 

@@ -17,6 +17,7 @@
     "test:crossfade": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" tests/crossfadeEngine.test.ts",
     "test:macros": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" tests/macrosEngine.test.ts",
     "test:gdtf": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" tests/gdtfImport.test.ts",
+    "test:categories": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" tests/fixtureCategories.test.ts",
     "test:e2e": "playwright test",
     "test:visual": "playwright test tests/visual.spec.ts",
     "test:show": "playwright test tests/show-from-scratch.spec.ts"
