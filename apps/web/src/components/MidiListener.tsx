@@ -6,8 +6,8 @@ import useStore from "../store/useStore";
 import { socket } from "../lib/socket";
 import { dmxEngine } from "../lib/dmxEngine";
 import {
-  colorToVelocity,
   getControllerProfile,
+  ledNoteMessage,
   matchControllerByPortName,
 } from "../lib/controllerProfiles";
 
@@ -85,15 +85,6 @@ export default function MidiListener() {
       // Défaut true si le flag est absent (ne pas casser l'existant).
       if (cfg.enableLedFeedback === false) return;
 
-      // 1. Profil contrôleur : depuis controllerId, sinon déduit du nom du 1er
-      //    output, sinon fallback "generic".
-      let profile = getControllerProfile(cfg.controllerId);
-      if (!cfg.controllerId) {
-        const firstName = midiOutputs[0]?.name ?? "";
-        const matched = matchControllerByPortName(firstName);
-        if (matched) profile = matched;
-      }
-
       // 2. Output(s) cible(s) : un seul si outputId défini, sinon tous.
       let targets: any[] = midiOutputs;
       if (cfg.outputId) {
@@ -101,6 +92,12 @@ export default function MidiListener() {
         targets = found ? [found] : [];
       }
       if (targets.length === 0) return;
+
+      // 1. Profil contrôleur : le NOM DU PORT matériel fait foi (l'id du menu
+      //    Settings n'utilise pas les mêmes clés que notre lib). Fallback sur
+      //    controllerId puis "generic".
+      const portName = targets[0]?.name ?? midiOutputs[0]?.name ?? "";
+      const profile = matchControllerByPortName(portName) ?? getControllerProfile(cfg.controllerId);
 
       const activeScene = state.smartActiveScene;
       const mappings = state.midiMappings;
@@ -110,13 +107,16 @@ export default function MidiListener() {
         if (controlId.startsWith("pad_") && (mapping as any).type === 144) {
           const pad = findPadByControlId(state, controlId);
           const isActive = pad ? activeScene === pad.qlcWidget : false;
-          const velocity = pad
-            ? colorToVelocity(profile.id, pad.color, isActive)
-            : 0;
+          const note = (mapping as any).data1;
+          // Message complet : status (canal = comportement fixe/pulsé pour RGB)
+          // + note + couleur. Pad introuvable → éteint.
+          const msg = pad
+            ? ledNoteMessage(profile.id, note, pad.color, isActive)
+            : [0x90, note, 0];
 
           targets.forEach((output: any) => {
             try {
-              output.send([144, (mapping as any).data1, velocity]);
+              output.send(msg);
             } catch {
               /* ignore send failures */
             }

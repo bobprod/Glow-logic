@@ -9,6 +9,7 @@ import {
   classifyColor,
   classifyRgb,
   colorToVelocity,
+  ledNoteMessage,
   matchControllerByPortName,
   getControllerProfile,
 } from "../src/lib/controllerProfiles";
@@ -83,6 +84,30 @@ test("Launchpad (rgb) renvoie des vélocités de palette distinctes", () => {
   assert.notEqual(red, green);
   assert.notEqual(green, blue);
   assert.equal(colorToVelocity("launchpad_mk3", "#000000"), 0);
+});
+
+// ─── ledNoteMessage : message MIDI complet ───────────────────────────────
+test("APC mini mk2 : couleur en vélocité, comportement via le canal", () => {
+  // Pad fixe rouge : canal 6 (0x96=150), vélocité = palette rouge (5).
+  assert.deepEqual(ledNoteMessage("apc_mini_mk2", 12, "#ff0000", false), [0x96, 12, 5]);
+  // Pad ACTIF rouge : canal pulse 10 (0x9A=154), même couleur.
+  assert.deepEqual(ledNoteMessage("apc_mini_mk2", 12, "#ff0000", true), [0x9a, 12, 5]);
+  // Couleur éteinte : note off canal 0, vélocité 0.
+  assert.deepEqual(ledNoteMessage("apc_mini_mk2", 12, "", false), [0x90, 12, 0]);
+});
+
+test("Launchpad mk3 : canal statique vs pulse", () => {
+  const solid = ledNoteMessage("launchpad_mk3", 30, "#00ff00", false);
+  const pulse = ledNoteMessage("launchpad_mk3", 30, "#00ff00", true);
+  assert.equal(solid[0], 0x90); // statique
+  assert.equal(pulse[0], 0x92); // pulse
+  assert.equal(solid[2], pulse[2]); // même couleur
+  assert.ok(solid[2] > 0);
+});
+
+test("APC mini d'origine (velocity3) : canal 0, clignotement dans la vélocité", () => {
+  assert.deepEqual(ledNoteMessage("apc_mini", 5, "bg-green-500", false), [0x90, 5, 1]);
+  assert.deepEqual(ledNoteMessage("apc_mini", 5, "bg-green-500", true), [0x90, 5, 2]); // clignotant
 });
 
 // ─── Détection de profil par nom de port ─────────────────────────────────

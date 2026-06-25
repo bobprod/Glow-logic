@@ -28,6 +28,12 @@ export interface ControllerProfile {
   matchPatterns: string[];
   grid: { cols: number; rows: number };
   ledModel: LedModel;
+  // Pour les modèles RGB : le clignotement/pulsation se fait via le CANAL MIDI
+  // (status byte), pas la vélocité. solidStatus = pad fixe pleine luminosité ;
+  // activeStatus = pad pulsé/clignotant (scène active). La vélocité porte la
+  // couleur (palette). Absent pour velocity3 (status toujours 0x90, le
+  // clignotement est encodé dans la vélocité).
+  rgb?: { solidStatus: number; activeStatus: number };
 }
 
 export const CONTROLLER_PROFILES: Record<string, ControllerProfile> = {
@@ -40,16 +46,22 @@ export const CONTROLLER_PROFILES: Record<string, ControllerProfile> = {
     id: "apc_mini_mk2", label: "Akai APC mini mk2",
     matchPatterns: ["apc mini mk2", "apc mini mkii", "mk2"],
     grid: { cols: 8, rows: 8 }, ledModel: "rgb",
+    // Protocole Akai : canal 6 = fixe 100% (0x96=150), canal 10 = pulse 1/2 (0x9A=154).
+    rgb: { solidStatus: 0x96, activeStatus: 0x9a },
   },
   apc40_mk2: {
     id: "apc40_mk2", label: "Akai APC40 mk2",
     matchPatterns: ["apc40", "apc 40"],
     grid: { cols: 8, rows: 5 }, ledModel: "rgb",
+    // Best-effort : canal 0 fixe (0x90), canal 6 clignotant (0x96).
+    rgb: { solidStatus: 0x90, activeStatus: 0x96 },
   },
   launchpad_mk3: {
     id: "launchpad_mk3", label: "Novation Launchpad (mini/X mk3)",
     matchPatterns: ["launchpad"],
     grid: { cols: 8, rows: 8 }, ledModel: "rgb",
+    // Protocole Novation : canal 0 = statique (0x90), canal 2 = pulse (0x92).
+    rgb: { solidStatus: 0x90, activeStatus: 0x92 },
   },
   generic: {
     id: "generic", label: "Générique (Note On)",
@@ -180,7 +192,33 @@ export function colorToVelocity(
     return active ? V3_BLINK[v3] : V3_STATIC[v3];
   }
 
-  // rgb : vélocité de palette (le clignotement éventuel est géré côté envoi,
-  // via le canal MIDI 2 sur Launchpad — non couvert ici).
+  // rgb : vélocité de palette (le clignotement est géré par le canal MIDI,
+  // cf. ledNoteMessage / le champ rgb du profil).
   return RGB_VELOCITY[fam] ?? RGB_VELOCITY.green;
+}
+
+// ─── Message MIDI complet d'allumage d'un pad ────────────────────────────
+// PARTIE TESTÉE. Retourne [status, note, velocity] prêt pour output.send().
+// - velocity3 (APC mini d'origine) : status 0x90, le clignotement (pad actif)
+//   est encodé dans la vélocité.
+// - rgb (APC mini mk2 / Launchpad…) : la couleur est la vélocité (palette) et
+//   le comportement fixe/pulsé est porté par le CANAL (status byte du profil).
+export function ledNoteMessage(
+  profileId: string | undefined | null,
+  note: number,
+  color: string,
+  active = false,
+): [number, number, number] {
+  const profile = getControllerProfile(profileId);
+
+  if (profile.ledModel === "rgb" && profile.rgb) {
+    const velocity = colorToVelocity(profileId, color, false);
+    const status = velocity === 0
+      ? 0x90 // éteint : note off "solide" canal 0
+      : active ? profile.rgb.activeStatus : profile.rgb.solidStatus;
+    return [status, note, velocity];
+  }
+
+  // velocity3 / generic / none : canal 0, clignotement encodé dans la vélocité.
+  return [0x90, note, colorToVelocity(profileId, color, active)];
 }
