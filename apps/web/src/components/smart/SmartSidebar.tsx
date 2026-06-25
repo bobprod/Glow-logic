@@ -12,6 +12,7 @@ import {
   Eye,
   EyeOff,
   FilePlus2,
+  FileUp,
   GripVertical,
   LayoutGrid,
   Library,
@@ -25,6 +26,7 @@ import {
 } from "lucide-react";
 import useStore from "../../store/useStore";
 import { API_BASE } from "../../lib/config";
+import { extractGdtfXml, parseGdtfDescription, toAppFixture } from "../../lib/gdtfImport";
 import { DEFAULT_WIDGETS, type SmartWidgetType } from "../../store/slices/smartModeSlice";
 import OrchestratorController from "../OrchestratorController";
 import AiInspectorPanel from "./AiInspectorPanel";
@@ -437,6 +439,7 @@ function SmartLibraryPanel({ buildMode }: { buildMode: boolean }) {
     selectFixture,
   } = useStore();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const gdtfInputRef = useRef<HTMLInputElement | null>(null);
   const [fixtures, setFixtures] = useState<FixtureListing[]>([]);
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [query, setQuery] = useState("");
@@ -606,6 +609,37 @@ function SmartLibraryPanel({ buildMode }: { buildMode: boolean }) {
     }
   };
 
+  const handleImportGdtf = async (file: File) => {
+    try {
+      setStatus("Lecture GDTF...");
+      const buffer = await file.arrayBuffer();
+      const xml = await extractGdtfXml(buffer);
+      const parsed = parseGdtfDescription(xml);
+      const modes = Array.isArray(parsed.modes) ? parsed.modes : [];
+      const modeName = modes[0]?.name ?? parsed.name ?? file.name;
+      // v1: prochaine adresse libre = max(start + channels) des fixtures patchees, sinon 1
+      const nextAddress = fixtures.length > 0
+        ? Math.max(...fixtures.map((f) => (f.start_address || 1) + (f.total_channels || 0)))
+        : 1;
+      const payload = toAppFixture(parsed, 0, nextAddress);
+      const response = await fetch(`${API_BASE}/api/fixtures`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.details || result.error || "Import GDTF impossible");
+      await fetchFixtures();
+      await loadFixtures();
+      setStatus(`Fixture GDTF importee (mode "${modeName}")`);
+      addToast({ type: "success", message: "GDTF importe", detail: `${parsed.name ?? file.name} - mode ${modeName}` });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Import GDTF impossible";
+      setStatus(detail);
+      addToast({ type: "error", message: "GDTF", detail });
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="relative">
@@ -679,6 +713,10 @@ function SmartLibraryPanel({ buildMode }: { buildMode: boolean }) {
           <button onClick={() => fileInputRef.current?.click()} className="rounded-lg border border-white/10 bg-black/30 px-2 py-2 text-[10px] font-black text-slate-300 hover:bg-white/5">
             Import
           </button>
+          <button onClick={() => gdtfInputRef.current?.click()} title="Importer un profil GDTF" className="flex items-center gap-1 rounded-lg border border-purple-500/20 bg-purple-500/10 px-2 py-2 text-[10px] font-black text-purple-200 hover:bg-purple-500/20">
+            <FileUp className="h-3.5 w-3.5" />
+            GDTF
+          </button>
           <input
             ref={fileInputRef}
             type="file"
@@ -687,6 +725,17 @@ function SmartLibraryPanel({ buildMode }: { buildMode: boolean }) {
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) void handleImportFile(file);
+              event.currentTarget.value = "";
+            }}
+          />
+          <input
+            ref={gdtfInputRef}
+            type="file"
+            accept=".gdtf"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void handleImportGdtf(file);
               event.currentTarget.value = "";
             }}
           />
