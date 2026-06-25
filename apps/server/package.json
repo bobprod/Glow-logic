@@ -1,0 +1,36 @@
+{
+    "name": "server",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "dev": "ts-node index.ts",
+        "start": "ts-node index.ts",
+        "test:api": "node -r ts-node/register/transpile-only tests/api-smoke.ts",
+        "test:field": "node -r ts-node/register/transpile-only tests/field-smoke.ts",
+        "test:dmx": "node -r ts-node/register/transpile-only tests/dmxRouter-smoke.ts",
+        "test:patch": "node -r ts-node/register/transpile-only tests/patchTable.test.ts",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@types/serialport": "^8.0.5",
+        "artnet-node": "^0.1.0",
+        "assert": "^2.1.0",
+        "better-sqlite3": "^12.6.2",
+        "const": "^1.0.0",
+        "express": "^5.2.1",
+        "multer": "^2.1.1",
+        "node-web-audio-api": "^1.0.8",
+        "osc": "^2.4.5",
+        "serialport": "^12.0.0",
+        "socket.io": "^4.8.3",
+        "tesseract.js": "^7.0.0"
+    },
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.13",
+        "@types/express": "^5.0.6",
+        "@types/multer": "^2.1.0",
+        "@types/node": "^25.3.1",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.9.3"
+    }
+}

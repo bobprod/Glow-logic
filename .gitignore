@@ -1,0 +1,32 @@
+node_modules
+.next
+.DS_Store
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+dist
+build
+.claude
+*.db
+*.db-shm
+*.db-wal
+apps/web/test-results
+reports/field/
+
+# Logs & temp files
+*.log
+*.pyc
+__pycache__/
+.playwright-mcp/
+*.exe
+*.msi
+*.zip
+*.tar.gz
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+mcp/

@@ -1,0 +1,346 @@
+import assert from "node:assert/strict";
+import type { Server } from "node:http";
+
+const MANAGED_PORT = Number(process.env.GLOW_TEST_PORT || (3100 + Math.floor(Math.random() * 400)));
+const BASE_URL = process.env.GLOW_API_BASE || `http://127.0.0.1:${MANAGED_PORT}`;
+const USE_EXTERNAL_SERVER = Boolean(process.env.GLOW_API_BASE);
+const RUN_ID = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+type ManagedServerProcess = Server;
+let AUTH_TOKEN = "";
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readJson(response: Response) {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+async function request(path: string, options: RequestInit = {}, okStatuses = [200]) {
+  const headers = new Headers(options.headers);
+  if (!(options.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (AUTH_TOKEN && path !== "/api/auth/bootstrap" && path !== "/api/health") {
+    headers.set("Authorization", `Bearer ${AUTH_TOKEN}`);
+  }
+  const response = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers,
+  });
+  const body = await readJson(response);
+  assert.ok(
+    okStatuses.includes(response.status),
+    `${options.method || "GET"} ${path} -> ${response.status}: ${JSON.stringify(body)}`,
+  );
+  return body;
+}
+
+async function binaryRequest(path: string, options: RequestInit = {}, okStatuses = [200]) {
+  const headers = new Headers(options.headers);
+  if (AUTH_TOKEN) headers.set("Authorization", `Bearer ${AUTH_TOKEN}`);
+  const response = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers,
+  });
+  const body = Buffer.from(await response.arrayBuffer());
+  assert.ok(
+    okStatuses.includes(response.status),
+    `${options.method || "GET"} ${path} -> ${response.status}: ${body.toString("utf8").slice(0, 200)}`,
+  );
+  return { response, body };
+}
+
+async function isServerReady() {
+  try {
+    const response = await fetch(`${BASE_URL}/api/health`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureServer() {
+  if (await isServerReady()) {
+    const bootstrap = await request("/api/auth/bootstrap", { method: "POST" });
+    AUTH_TOKEN = bootstrap.token;
+    return null;
+  }
+  if (USE_EXTERNAL_SERVER) {
+    throw new Error(`External server is not ready at ${BASE_URL}`);
+  }
+
+  process.env.NODE_ENV = "test";
+  process.env.GLOW_SERVER_PORT = String(MANAGED_PORT);
+  const { startServer } = await import("../index");
+  const server = startServer(MANAGED_PORT);
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (await isServerReady()) {
+      const bootstrap = await request("/api/auth/bootstrap", { method: "POST" });
+      AUTH_TOKEN = bootstrap.token;
+      return server;
+    }
+    await sleep(500);
+  }
+
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  throw new Error(`Server did not become ready at ${BASE_URL}`);
+}
+
+async function cleanup(child: ManagedServerProcess | null, fixtureIds: number[], libraryIds: number[], projectIds: number[]) {
+  const headers = new Headers();
+  if (AUTH_TOKEN) headers.set("Authorization", `Bearer ${AUTH_TOKEN}`);
+  for (const id of fixtureIds) {
+    await fetch(`${BASE_URL}/api/fixtures/${id}`, { method: "DELETE", headers }).catch(() => undefined);
+  }
+  for (const id of libraryIds) {
+    await fetch(`${BASE_URL}/api/library/${id}`, { method: "DELETE", headers }).catch(() => undefined);
+  }
+  for (const id of projectIds) {
+    await fetch(`${BASE_URL}/api/projects/${id}`, { method: "DELETE", headers }).catch(() => undefined);
+  }
+  if (child) {
+    await new Promise<void>((resolve) => child.close(() => resolve()));
+  }
+}
+
+async function testAuth() {
+  const health = await request("/api/health");
+  assert.equal(health.ok, true);
+
+  const unauthorized = await fetch(`${BASE_URL}/api/projects`);
+  assert.equal(unauthorized.status, 401);
+
+  const projects = await request("/api/projects");
+  assert.ok(Array.isArray(projects));
+}
+
+async function testFixtures(fixtureIds: number[], libraryIds: number[]) {
+  const fixtureName = `API Smoke Fixture ${RUN_ID}`;
+  const saved = await request("/api/fixtures", {
+    method: "POST",
+    body: JSON.stringify({
+      name: fixtureName,
+      manufacturer: "Glow Logic Test",
+      startAddress: 1,
+      channels: [{ channel: 1, name: "Dimmer", type: "dimmer", min: 0, max: 255 }],
+      modes: [{ name: "1ch", channels: [{ channel: 1, name: "Dimmer", type: "dimmer", min: 0, max: 255 }] }],
+    }),
+  });
+  assert.equal(saved.success, true);
+  assert.equal(typeof saved.id, "number");
+  fixtureIds.push(saved.id);
+
+  const loaded = await request(`/api/fixtures/${saved.id}`);
+  assert.equal(loaded.name, fixtureName);
+  assert.equal(loaded.channels[0].type, "dimmer");
+
+  const fixtureList = await request("/api/fixtures");
+  assert.ok(Array.isArray(fixtureList));
+  assert.ok(fixtureList.some((fixture: any) => fixture.id === saved.id));
+
+  const profileModel = `API Smoke Profile ${RUN_ID}`;
+  const qxf = `<?xml version="1.0" encoding="UTF-8"?>
+<FixtureDefinition>
+  <Manufacturer>Glow Logic Test</Manufacturer>
+  <Model>${profileModel}</Model>
+  <Type>Moving Head</Type>
+  <Channel Name="Pan"><Group Byte="0">Pan</Group><Capability Min="0" Max="255">Pan</Capability></Channel>
+  <Channel Name="Dimmer"><Group Byte="0">Intensity</Group><Capability Min="0" Max="255">Dimmer</Capability></Channel>
+  <Mode Name="Basic"><Channel Number="0">Pan</Channel><Channel Number="1">Dimmer</Channel></Mode>
+</FixtureDefinition>`;
+  const form = new FormData();
+  form.append("profile", new Blob([qxf], { type: "application/xml" }), "api-smoke.qxf");
+  const imported = await request("/api/fixtures/import-profile", { method: "POST", body: form });
+  assert.equal(imported.success, true);
+  assert.equal(imported.profile.model, profileModel);
+  fixtureIds.push(imported.id);
+
+  const libraryProfiles = await request("/api/library?kind=fixture_profile&scope=user");
+  const importedProfileItem = libraryProfiles.find((item: any) => item.name === `Glow Logic Test ${profileModel}`);
+  if (importedProfileItem?.id) libraryIds.push(importedProfileItem.id);
+}
+
+async function testLibrary(libraryIds: number[]) {
+  const name = `API Smoke Look ${RUN_ID}`;
+  const saved = await request("/api/library", {
+    method: "POST",
+    body: JSON.stringify({
+      kind: "look_preset",
+      scope: "user",
+      name,
+      description: "API smoke test item",
+      tags: ["api-smoke"],
+      data: { levels: { master: 128 } },
+    }),
+  });
+  assert.equal(saved.name, name);
+  assert.equal(saved.kind, "look_preset");
+  libraryIds.push(saved.id);
+
+  const list = await request("/api/library?kind=look_preset&scope=user");
+  assert.ok(list.some((item: any) => item.id === saved.id));
+
+  const exported = await request("/api/library/export");
+  assert.ok(Array.isArray(exported.items));
+  assert.ok(exported.items.some((item: any) => item.id === saved.id));
+}
+
+async function testSafety() {
+  const state = await request("/api/safety");
+  assert.ok(Array.isArray(state.rules));
+
+  const compactStatus = await request("/api/safety/status");
+  assert.equal(typeof compactStatus.laserArmed, "boolean");
+  assert.equal(typeof compactStatus.pyroArmed, "boolean");
+  assert.equal(typeof compactStatus.operatorRole, "string");
+
+  const rejectedAliasArm = await request("/api/safety/arm", {
+    method: "POST",
+    body: JSON.stringify({ type: "laser", state: true }),
+  }, [403]);
+  assert.ok(String(rejectedAliasArm.error || rejectedAliasArm.details).length > 0);
+
+  const standard = await request("/api/safety/validate", {
+    method: "POST",
+    body: JSON.stringify({ source: "api", description: "standard api smoke" }),
+  });
+  assert.equal(standard.allowed, true);
+
+  const blockedLaser = await request("/api/safety/validate", {
+    method: "POST",
+    body: JSON.stringify({
+      source: "api",
+      hazard: "laser",
+      outputMode: "physical",
+      payload: { power: 255 },
+    }),
+  });
+  assert.equal(blockedLaser.allowed, false);
+  assert.equal(blockedLaser.requiresManualArm, true);
+}
+
+async function testDmxRouterOutputs() {
+  const original = await request("/api/dmx/router");
+  const disabled = await request("/api/dmx/router", {
+    method: "POST",
+    body: JSON.stringify({ qlcOsc: false, qlcWs: false, artNet: false, usbDmx: false }),
+  });
+  assert.equal(disabled.success, true);
+  assert.equal(disabled.outputs.qlcOsc, false);
+  assert.equal(disabled.outputs.qlcWs, false);
+  assert.equal(disabled.outputs.artNet, false);
+  assert.equal(disabled.outputs.usbDmx, false);
+  assert.equal(disabled.outputStatus.outputs.artNet.state, "off");
+
+  const togglePython = await request("/api/dmx/router", {
+    method: "POST",
+    body: JSON.stringify({ python: true }),
+  });
+  assert.equal(togglePython.outputs.python, true);
+  assert.equal(togglePython.outputs.usbDmx, false, "python et usbDmx doivent etre independants");
+  await request("/api/dmx/router", { method: "POST", body: JSON.stringify({ python: false }) });
+
+  const outputStatus = await request("/api/dmx/output-status");
+  assert.equal(typeof outputStatus.at, "number");
+  assert.equal(outputStatus.outputs.qlcOsc.state, "off");
+  assert.equal(outputStatus.outputs.artNet.state, "off");
+
+  await request("/api/dmx/router", {
+    method: "POST",
+    body: JSON.stringify(original),
+  });
+}
+
+async function testShowActions() {
+  const validationAction = await request("/api/show-actions", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "safety.validate",
+      source: "api",
+      outputMode: "simulation",
+      payload: { note: "api smoke" },
+    }),
+  });
+  assert.equal(validationAction.ok, true);
+  assert.equal(validationAction.results[0].type, "safety.validate");
+
+  const blockedDangerousAction = await request("/api/show-actions", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "laser.fire",
+      source: "api",
+      hazard: "laser",
+      outputMode: "physical",
+      payload: { power: 255 },
+    }),
+  }, [403]);
+  assert.equal(blockedDangerousAction.ok, false);
+  assert.equal(blockedDangerousAction.results[0].blocked, true);
+}
+
+async function testProjectPackages(projectIds: number[]) {
+  const projectName = `API Smoke Project ${RUN_ID}`;
+  const saved = await request("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({
+      name: projectName,
+      data: {
+        version: 3,
+        currentProjectName: projectName,
+        smartPads: [{ id: 1, name: "Smoke Pad", qlcPage: 1, qlcWidget: 1 }],
+        playlist: [{ id: "video-1", name: "Smoke Video", fileType: "video", fileUrl: "C:/shows/smoke.mp4" }],
+      },
+    }),
+  });
+  assert.equal(saved.success, true);
+  assert.equal(typeof saved.id, "number");
+  projectIds.push(saved.id);
+
+  const exported = await binaryRequest(`/api/projects/${saved.id}/export`);
+  assert.equal(exported.response.headers.get("content-type"), "application/vnd.glowlogic.project+zip");
+  assert.equal(exported.body.subarray(0, 2).toString("utf8"), "PK");
+  assert.ok(exported.body.includes(Buffer.from("manifest.json")));
+  assert.ok(exported.body.includes(Buffer.from("database/project.db")));
+
+  const form = new FormData();
+  form.append("project", new Blob([exported.body], { type: "application/vnd.glowlogic.project+zip" }), "api-smoke.glowproject");
+  form.append("name", `${projectName} Imported`);
+  form.append("mergeDatabase", "false");
+  const imported = await request("/api/projects/import", { method: "POST", body: form });
+  assert.equal(imported.success, true);
+  assert.equal(typeof imported.imported.projectId, "number");
+  projectIds.push(imported.imported.projectId);
+}
+
+async function main() {
+  const child = await ensureServer();
+  const fixtureIds: number[] = [];
+  const libraryIds: number[] = [];
+  const projectIds: number[] = [];
+
+  try {
+    await testAuth();
+    await testFixtures(fixtureIds, libraryIds);
+    await testLibrary(libraryIds);
+    await testSafety();
+    await testDmxRouterOutputs();
+    await testShowActions();
+    await testProjectPackages(projectIds);
+    console.log("API smoke tests passed: fixtures, library, safety, show-actions, project-packages.");
+  } finally {
+    await cleanup(child, fixtureIds, libraryIds, projectIds);
+  }
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

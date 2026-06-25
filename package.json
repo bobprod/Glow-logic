@@ -1,0 +1,43 @@
+{
+  "name": "glow-logic",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Système de contrôle de spectacle No-Code",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces",
+    "start": "npm run start --workspaces",
+    "build": "npm run build --workspace web && npm run typecheck --workspace server",
+    "typecheck": "npm run typecheck --workspaces",
+    "test:unit": "npm run test:unit --workspace web",
+    "test:api": "npm run test:api --workspace server",
+    "test:field": "npm run test:field --workspace server",
+    "test:visual": "npm run test:visual --workspace web",
+    "test:show": "npm run test:show --workspace web",
+    "verify:ui": "npm run test:visual --workspace web && npm run test:show --workspace web",
+    "verify:all": "npm run verify && npm run test:unit --workspace web && npm run test:api && npm run verify:ui",
+    "package:check": "npm run verify && npm run test:api && npm run test:field && npm run build",
+    "release:check": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Run-ReleaseCandidateChecks.ps1",
+    "doctor:eperm": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Diagnose-SpawnEperm.ps1",
+    "verify": "npm run typecheck --workspaces && npm run lint --workspace web",
+    "install:all": "npm install",
+    "launcher": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Launch-GlowLogic.ps1",
+    "launcher:stop": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Stop-GlowLogic.ps1",
+    "field:ttfl": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Measure-TTFL.ps1",
+    "field:report": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/New-FieldValidationReport.ps1",
+    "launcher:stop:bash": "bash ./scripts/stop-glow-logic.sh",
+    "launcher:status": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/Status-GlowLogic.ps1",
+    "stop:bash": "bash ./scripts/stop-glow-logic.sh"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "@types/three": "^0.184.1",
+    "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}
