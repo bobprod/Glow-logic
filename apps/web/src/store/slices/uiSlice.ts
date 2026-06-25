@@ -3,6 +3,9 @@ import { setHistoryLock } from '../history';
 
 export type AiInspectorLogType = 'sys' | 'ai' | 'warn' | 'osc' | 'info';
 
+// Les 5 étapes du pipeline DESIGN (4 guidées + 1 échappatoire experts).
+export type DesignStep = 'patch' | 'place' | 'program' | 'sequence' | 'advanced';
+
 export type AiInspectorLogEntry = {
     id: number;
     type: AiInspectorLogType;
@@ -22,6 +25,11 @@ export interface UISlice {
     setAppMode: (mode: 'smart' | 'creator') => void;
     proView: 'canvas' | 'visualizer' | 'patch';
     setProView: (view: 'canvas' | 'visualizer' | 'patch') => void;
+    // Pipeline guidé du mode DESIGN : l'ordre réel de préparation d'un show.
+    // patch (déclarer les fixtures) → place (les positionner) → program (créer
+    // des scènes) → sequence (les ordonner) → advanced (graphe nodal).
+    designStep: DesignStep;
+    setDesignStep: (step: DesignStep) => void;
     isTimelineVisible: boolean;
     setIsTimelineVisible: (visible: boolean) => void;
     isSidebarVisible: boolean;
@@ -83,6 +91,10 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     setAppMode: (mode) => set({ appMode: mode }),
     proView: 'canvas',
     setProView: (view) => set({ proView: view }),
+    designStep: 'patch',
+    // On garde proView synchronisé (consommateurs legacy) : seul 'advanced'
+    // correspond au canvas nodal ; les autres étapes pilotent leur propre vue.
+    setDesignStep: (step) => set({ designStep: step, proView: step === 'advanced' ? 'canvas' : 'patch' }),
     isTimelineVisible: true,
     setIsTimelineVisible: (visible) => set({ isTimelineVisible: visible }),
     isSidebarVisible: true,

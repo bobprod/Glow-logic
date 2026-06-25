@@ -9,6 +9,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import useStore from "../store/useStore";
+import type { DesignStep } from "../store/slices/uiSlice";
 import DmxOutputNode from "./nodes/DmxOutputNode";
 import SliderNode from "./nodes/SliderNode";
 import PadNode from "./nodes/PadNode";
@@ -19,6 +20,7 @@ import ColorPickerNode from "./nodes/ColorPickerNode";
 import FixtureNode from "./nodes/FixtureNode";
 
 import { Suspense, lazy } from "react";
+import { Settings2, Check, ArrowRight } from "lucide-react";
 import TopBar from "./TopBar";
 import MidiListener from "./MidiListener";
 import { ToastContainer } from "./ui/ToastContainer";
@@ -37,6 +39,8 @@ const StagePlan = lazy(() => import("./smart/StagePlan"));
 const FixtureController = lazy(() => import("./FixtureController"));
 const GuidedTour = lazy(() => import("./ui/GuidedTour"));
 const LivePerformanceView = lazy(() => import("./smart/LivePerformanceView"));
+const SceneController = lazy(() => import("./smart/SceneController"));
+const FixturesPage = lazy(() => import("./FixturesPage"));
 
 // Custom node types
 const nodeTypes = {
@@ -52,6 +56,15 @@ const nodeTypes = {
 
 let idCounter = 10;
 const getId = () => `node-${idCounter++}`;
+
+// Pipeline guidé du MODE DESIGN : 4 étapes numérotées + une échappatoire "Avancé".
+const GUIDED_STEPS: { key: DesignStep; n: number; label: string; sub: string }[] = [
+  { key: "patch", n: 1, label: "Patch", sub: "Qu'ai-je ?" },
+  { key: "place", n: 2, label: "Placer", sub: "Où sont-ils ?" },
+  { key: "program", n: 3, label: "Programmer", sub: "Quels états ?" },
+  { key: "sequence", n: 4, label: "Séquencer", sub: "Dans quel ordre ?" },
+];
+const GUIDED_ORDER: DesignStep[] = GUIDED_STEPS.map((s) => s.key);
 
 function FlowCanvas() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -219,6 +232,7 @@ interface AppShellProps {
 export default function AppShell({ routeMode }: AppShellProps = {}) {
   const {
     appMode, setAppMode, proView, setProView,
+    designStep, setDesignStep,
     isBottomPanelVisible, setIsBottomPanelVisible,
     isRightPanelVisible, setIsRightPanelVisible,
     activeRightTab, setActiveRightTab,
@@ -226,6 +240,7 @@ export default function AppShell({ routeMode }: AppShellProps = {}) {
     addToast, saveProject, currentProjectName,
     livePerformanceMode, setLivePerformanceMode,
   } = useStore();
+  const [placeView, setPlaceView] = useState<"2d" | "3d">("2d");
   const [authReady, setAuthReady] = useState(false);
   const [needsPairing, setNeedsPairing] = useState(false);
   const [pairingToken, setPairingToken] = useState("");
@@ -501,29 +516,147 @@ export default function AppShell({ routeMode }: AppShellProps = {}) {
             <SmartDashboard />
           </Suspense>
         )}
-        {appMode === "creator" && (
+        {appMode === "creator" && (() => {
+          const activeIdx = GUIDED_ORDER.indexOf(designStep);
+          const nextStep =
+            activeIdx >= 0 && activeIdx < GUIDED_ORDER.length - 1
+              ? GUIDED_ORDER[activeIdx + 1]
+              : null;
+          return (
           <div className="relative flex-1 flex overflow-hidden bg-[#07090e]">
-            {/* Main Workspace + Horizontal Bottom Panel */}
+            {/* RAIL GAUCHE : pipeline numéroté 4 étapes + Avancé */}
+            <nav className="w-[150px] shrink-0 border-r border-white/5 bg-[#0a0c10] flex flex-col p-3 gap-1.5">
+              {GUIDED_STEPS.map((step) => {
+                const stepIdx = GUIDED_ORDER.indexOf(step.key);
+                const isActive = designStep === step.key;
+                // "Avant" l'étape courante dans l'ordre guidé → ✓.
+                const isDone = activeIdx >= 0 && stepIdx < activeIdx;
+                return (
+                  <button
+                    key={step.key}
+                    onClick={() => setDesignStep(step.key)}
+                    className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs tracking-wide transition-all cursor-pointer border ${
+                      isActive
+                        ? "bg-purple-500/15 border-purple-500/40 text-purple-300"
+                        : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-black ${
+                        isActive
+                          ? "bg-purple-500 text-white"
+                          : isDone
+                          ? "bg-purple-500/25 text-purple-300"
+                          : "bg-white/5 text-slate-500"
+                      }`}
+                    >
+                      {isDone ? <Check className="h-3.5 w-3.5" /> : step.n}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold leading-tight">{step.label}</span>
+                      <span className="block text-[10px] text-slate-500 leading-tight">{step.sub}</span>
+                    </span>
+                  </button>
+                );
+              })}
+
+              {/* Séparateur + échappatoire Avancé */}
+              <div className="my-1.5 h-px bg-white/5" />
+              <button
+                onClick={() => setDesignStep("advanced")}
+                className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs tracking-wide transition-all cursor-pointer border ${
+                  designStep === "advanced"
+                    ? "bg-purple-500/15 border-purple-500/40 text-purple-300"
+                    : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                }`}
+              >
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
+                    designStep === "advanced" ? "bg-purple-500 text-white" : "bg-white/5 text-slate-500"
+                  }`}
+                >
+                  <Settings2 className="h-3.5 w-3.5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold leading-tight">Avancé</span>
+                  <span className="block text-[10px] text-slate-500 leading-tight">Graphe nodal</span>
+                </span>
+              </button>
+
+              {/* Bouton Suivant → (masqué sur sequence/advanced) */}
+              {nextStep && (
+                <button
+                  onClick={() => setDesignStep(nextStep)}
+                  className="mt-auto flex items-center justify-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 px-2.5 py-2 text-xs font-bold tracking-wide text-purple-300 transition-all hover:bg-purple-500/20 cursor-pointer"
+                >
+                  Suivant <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </nav>
+
+            {/* ZONE CENTRALE : viewport contextuel selon designStep */}
             <div className="flex-1 flex flex-col overflow-hidden relative min-w-0 h-full">
-              {/* Central Viewport */}
-              <div className="flex-1 flex overflow-hidden relative min-h-0">
-                {proView === "visualizer" ? (
+              <div className="flex-1 flex flex-col overflow-hidden relative min-h-0">
+                {designStep === "patch" && (
+                  <Suspense fallback={<div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading Fixtures...</div>}>
+                    <FixturesPage embedded={true} />
+                  </Suspense>
+                )}
+
+                {designStep === "place" && (
+                  <div className="flex-1 flex flex-col overflow-hidden relative min-h-0">
+                    {/* Toggle segmenté 2D / 3D */}
+                    <div className="absolute top-3 right-3 z-30 flex bg-black/50 rounded-lg p-1 border border-white/5 backdrop-blur-md">
+                      <button
+                        onClick={() => setPlaceView("2d")}
+                        className={`px-3 py-1 rounded-md text-[11px] font-bold tracking-wide transition-all cursor-pointer ${
+                          placeView === "2d" ? "bg-cyan-500/20 text-cyan-400" : "text-slate-500 hover:text-slate-300"
+                        }`}
+                      >
+                        2D
+                      </button>
+                      <button
+                        onClick={() => setPlaceView("3d")}
+                        className={`px-3 py-1 rounded-md text-[11px] font-bold tracking-wide transition-all cursor-pointer ${
+                          placeView === "3d" ? "bg-purple-500/20 text-purple-400" : "text-slate-500 hover:text-slate-300"
+                        }`}
+                      >
+                        3D
+                      </button>
+                    </div>
+                    {placeView === "2d" ? (
+                      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading Stage Plan...</div>}>
+                        <StagePlan capabilities="build" />
+                      </Suspense>
+                    ) : (
+                      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading 3D Visualizer...</div>}>
+                        <VisualizerView />
+                      </Suspense>
+                    )}
+                  </div>
+                )}
+
+                {designStep === "program" && (
+                  <Suspense fallback={<div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading Stage Plan...</div>}>
+                    <StagePlan capabilities="build" />
+                  </Suspense>
+                )}
+
+                {designStep === "sequence" && (
                   <Suspense fallback={<div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading 3D Visualizer...</div>}>
                     <VisualizerView />
                   </Suspense>
-                ) : proView === "patch" ? (
-                  <Suspense fallback={<div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading Patch Panel...</div>}>
-                    <StagePlan capabilities="build" />
-                  </Suspense>
-                ) : (
+                )}
+
+                {designStep === "advanced" && (
                   <ReactFlowProvider>
                     <FlowCanvas />
                   </ReactFlowProvider>
                 )}
               </div>
 
-              {/* Bottom horizontal Device Panel (Fixture Controller) */}
-              {isBottomPanelVisible && (
+              {/* Panneau bas (Fixture Controller) — uniquement à l'étape "program" */}
+              {designStep === "program" && isBottomPanelVisible && (
                 <div className="h-[260px] min-h-[180px] max-h-[380px] border-t border-white/5 bg-[#0a0c10] flex flex-col relative shrink-0 z-30 shadow-[0_-5px_25px_rgba(0,0,0,0.5)]">
                   {/* Tab handle button */}
                   <button
@@ -542,8 +675,8 @@ export default function AppShell({ routeMode }: AppShellProps = {}) {
                 </div>
               )}
 
-              {/* Restore bottom panel button */}
-              {!isBottomPanelVisible && (
+              {/* Restore bottom panel button — uniquement à l'étape "program" */}
+              {designStep === "program" && !isBottomPanelVisible && (
                 <button
                   onClick={() => setIsBottomPanelVisible(true)}
                   className="absolute bottom-4 left-6 px-3.5 py-2 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 text-[10px] font-black tracking-wider text-cyan-400 hover:text-cyan-300 transition-all shadow-[0_0_15px_rgba(6,182,212,0.2)] cursor-pointer z-50 font-mono"
@@ -554,49 +687,29 @@ export default function AppShell({ routeMode }: AppShellProps = {}) {
               )}
             </div>
 
-            {/* Right Tabbed Panel (Scenes, Cues) */}
-            {isRightPanelVisible && (
-              <div className="w-[380px] min-w-[320px] max-w-[480px] bg-[#0c0e12] border-l border-white/5 flex flex-col z-40 relative h-full overflow-hidden shadow-2xl">
-                {/* Tab selector */}
-                <div className="flex bg-[#07090e] border-b border-white/5 p-1 gap-1 shrink-0 items-center justify-between">
-                  <div className="flex gap-1 flex-1">
-                    <button
-                      onClick={() => setActiveRightTab("scenes")}
-                      className={`flex-1 py-2 rounded-lg text-[9px] font-black tracking-widest text-center transition-all cursor-pointer ${
-                        activeRightTab === "scenes"
-                          ? "bg-cyan-500/20 text-cyan-400 font-bold border border-cyan-500/30 shadow-[0_0_15px_rgba(6,182,212,0.15)]"
-                          : "text-slate-500 hover:text-slate-300"
-                      }`}
-                    >
-                      🎬 SCENES
-                    </button>
-                    <button
-                      onClick={() => setActiveRightTab("cues")}
-                      className={`flex-1 py-2 rounded-lg text-[9px] font-black tracking-widest text-center transition-all cursor-pointer ${
-                        activeRightTab === "cues"
-                          ? "bg-indigo-500/20 text-indigo-400 font-bold border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.15)]"
-                          : "text-slate-500 hover:text-slate-300"
-                      }`}
-                    >
-                      🎛 CUES
-                    </button>
-                  </div>
+            {/* PANNEAU DROIT : Scènes — uniquement à l'étape "program" */}
+            {designStep === "program" && isRightPanelVisible && (
+              <div className="w-[360px] min-w-[300px] border-l border-white/5 bg-[#0c0e12] flex flex-col z-40 relative h-full overflow-hidden shadow-2xl">
+                <div className="flex items-center justify-between bg-[#07090e] border-b border-white/5 px-3 py-2 shrink-0">
+                  <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-300">Scènes</h2>
                   <button
                     onClick={() => setIsRightPanelVisible(false)}
-                    className="p-2 text-slate-600 hover:text-slate-300 transition-colors ml-1 cursor-pointer"
+                    className="p-1.5 text-slate-600 hover:text-slate-300 transition-colors cursor-pointer"
                     title="Masquer le panneau"
                   >
                     <span>▶</span>
                   </button>
                 </div>
-
-                {/* Tab content wrapper */}
-                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-3" />
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <Suspense fallback={<div className="h-full flex items-center justify-center text-slate-500 text-sm">Loading Scenes...</div>}>
+                    <SceneController variant="sidebar" />
+                  </Suspense>
+                </div>
               </div>
             )}
 
-            {/* Restore right panel floating tab */}
-            {!isRightPanelVisible && (
+            {/* Restore right panel floating tab — uniquement à l'étape "program" */}
+            {designStep === "program" && !isRightPanelVisible && (
               <button
                 onClick={() => setIsRightPanelVisible(true)}
                 className="absolute top-20 right-4 p-2 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 rounded-xl text-xs font-bold text-cyan-400 hover:text-cyan-300 transition-all shadow-[0_0_15px_rgba(6,182,212,0.15)] cursor-pointer z-50"
@@ -606,7 +719,8 @@ export default function AppShell({ routeMode }: AppShellProps = {}) {
               </button>
             )}
           </div>
-        )}
+          );
+        })()}
       </div>
       <Suspense fallback={<div className="h-[200px] flex items-center justify-center text-slate-500 text-sm">Loading Timeline...</div>}>
         <MacroTimeline />

@@ -5,7 +5,6 @@ import { useRouter, usePathname } from "next/navigation";
 import {
   Settings,
   Play,
-  Radio,
   Activity,
   StopCircle,
   PanelLeftClose,
@@ -85,6 +84,7 @@ export default function TopBar() {
     currentProjectName,
     proView,
     setProView,
+    setDesignStep,
     setOpenTool,
     setSmartSidebarPanel,
     addToast,
@@ -419,7 +419,7 @@ export default function TopBar() {
             PERFORM
           </button>
           <button
-            onClick={() => { setAppMode("creator"); setProView("patch"); goHome(); }}
+            onClick={() => { setAppMode("creator"); setDesignStep("patch"); goHome(); }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
               appMode === "creator"
                 ? "bg-purple-500/20 text-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.2)]"
@@ -635,7 +635,7 @@ export default function TopBar() {
         </div>
 
         <div className="h-5 w-px bg-white/10 shrink-0" />
-        {appMode === "smart" ? (
+        {appMode === "smart" && (
           <div className="flex items-center gap-2 shrink-0">
             <div
               title={backendConnected ? "Backend connecté" : "Backend déconnecté"}
@@ -650,44 +650,6 @@ export default function TopBar() {
             >
               {activeSceneName}
             </div>
-          </div>
-        ) : (
-          <div className="flex bg-black/40 rounded-xl p-1 border border-white/5 shrink-0">
-            <button
-              onClick={() => setProView("patch")}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                proView === "patch"
-                  ? "bg-cyan-500/20 text-cyan-400"
-                  : "text-slate-500 hover:text-slate-300"
-              }`}
-            >
-              FIXTURES
-            </button>
-            <button
-              onClick={() => setProView("visualizer")}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                proView === "visualizer"
-                  ? "bg-purple-500/20 text-purple-400"
-                  : "text-slate-500 hover:text-slate-300"
-              }`}
-            >
-              <Radio className="w-3 h-3" />
-              3D
-            </button>
-            {/* Signal Graph (canvas) relégué — avancé, style discret/muté */}
-            <div className="mx-1 my-0.5 w-px bg-white/5" />
-            <button
-              onClick={() => setProView("canvas")}
-              title="Signal Graph (avancé)"
-              className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${
-                proView === "canvas"
-                  ? "bg-white/10 text-slate-300"
-                  : "text-slate-600 hover:text-slate-400"
-              }`}
-            >
-              <Wrench className="w-3 h-3 opacity-70" />
-              Avancé
-            </button>
           </div>
         )}
       </div>

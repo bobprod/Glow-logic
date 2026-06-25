@@ -54,6 +54,7 @@ const useStore = create<StoreState>()(
         edges: state.edges,
         appMode: state.appMode,
         proView: state.proView,
+        designStep: state.designStep,
         smartSidebarPanel: state.smartSidebarPanel,
         showLock: state.showLock,
         timelineHeight: state.timelineHeight,
