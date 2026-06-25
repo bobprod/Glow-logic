@@ -10,6 +10,7 @@
     "lint": "eslint",
     "test:unit": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" tests/trajectoryGenerator.test.ts && ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" tests/offlineProjectBackup.test.ts && ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" tests/dmxOfflineQueue.test.ts",
     "test:osc": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" tests/oscillatorEngine.test.ts",
+    "test:orchsafety": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" tests/orchestratorSafety.test.ts",
     "test:bridge": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" tests/sceneBridge.test.ts",
     "test:pixelmap": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" tests/pixelMapEngine.test.ts",
     "test:master": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" tests/masterScale.test.ts",

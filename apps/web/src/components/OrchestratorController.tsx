@@ -5,6 +5,7 @@ import { dmxEngine } from "@/lib/dmxEngine";
 import { socket } from "@/lib/socket";
 import { API_BASE } from "@/lib/config";
 import { filterUnsafeAiActions } from "@/lib/safetyClient";
+import { validateOrchestratorActions } from "@/lib/orchestratorSafety";
 import {
   Sparkles, Send, Loader2, Wand2, Zap, Music, Flame, Droplets, Wind,
   Plus, Power, HelpCircle, Palette, Layers, Radio, SkipForward,
@@ -85,7 +86,7 @@ export default function OrchestratorController({ fixtures: propFixtures = [] }: 
     addClip, viewStart,
     playlist, currentTrackIndex, updateTrackSettings,
     setIsPlaying, setCurrentTrackIndex, masterVolume, setMasterVolume,
-    addToast,
+    addToast, laserArmed, pyroArmed,
   } = useStore();
 
   const activeFixtures = propFixtures.length > 0 ? propFixtures : storeFixtures;
@@ -204,6 +205,49 @@ Réponds UNIQUEMENT avec un objet JSON valide:
 
 Uniquement les champs "commands" et "actions" que tu as besoin d'utiliser. Tu peux combiner DMX + actions dans la même réponse.
 Ne mets AUCUN texte en dehors du JSON.`;
+  };
+
+  // ─── Safety context builder (client-side, conservative) ──────────────────
+  // Réplique côté client la détection de fixtures dangereuses du serveur
+  // (dmxRouter.isDangerousFixture : regex laser/pyro/flame/firework sur nom +
+  // canaux). Comme la liste exacte des canaux dangereux n'est pas publiée au
+  // browser, on la recalcule depuis activeFixtures. Stratégie conservative :
+  // un canal de fixture dangereuse est marqué "dangereux" UNIQUEMENT si le
+  // hazard correspondant n'est PAS armé par l'opérateur (laserArmed/pyroArmed).
+  // Les canaux d'un hazard armé ne sont pas dans le set => ils passent comme
+  // avant. dangerousArmed reste false : tout canal présent dans le set est par
+  // construction non armé, donc bloqué.
+  const DANGER_RE = /\b(laser|pyro|flame|firework)\b/;
+
+  const fixtureHazard = (f: any): "laser" | "pyro" | null => {
+    const head = `${f?.name || ""} ${f?.manufacturer || ""}`.toLowerCase();
+    const chanText = (f?.channels || [])
+      .map((ch: any) => `${ch?.type || ""} ${ch?.function || ""} ${ch?.name || ""} ${ch?.notes || ""}`)
+      .join(" ")
+      .toLowerCase();
+    const blob = `${head} ${chanText}`;
+    if (!DANGER_RE.test(blob)) return null;
+    // pyro/flame/firework => pyro ; sinon laser
+    return /\b(pyro|flame|firework)\b/.test(blob) ? "pyro" : "laser";
+  };
+
+  const buildSafetyContext = (): { dangerousChannels: Set<number>; dangerousArmed: boolean } => {
+    const dangerous = new Set<number>();
+    for (const f of activeFixtures) {
+      const hazard = fixtureHazard(f);
+      if (!hazard) continue;
+      const armed = hazard === "laser" ? laserArmed : pyroArmed;
+      if (armed) continue; // hazard armé => ses canaux passent normalement
+      const start = f.start_address || f.startAddress || 1;
+      const total = Math.max(
+        Number(f.total_channels || f.totalChannels || 0),
+        ...((f.channels || []).map((ch: any) => Number(ch?.channel || 0))),
+        0,
+      );
+      const count = total > 0 ? total : (f.channels || []).length || 1;
+      for (let i = 0; i < count; i++) dangerous.add(start + i);
+    }
+    return { dangerousChannels: dangerous, dangerousArmed: false };
   };
 
   // ─── Apply AI actions to store ────────────────────────────────────────────
@@ -355,15 +399,58 @@ Ne mets AUCUN texte en dehors du JSON.`;
         parsed = { description: content.slice(0, 100), commands: [], actions: [] };
       }
 
-      const commands = (parsed.commands || []).map(cmd => ({
+      const rawCommands = (parsed.commands || []).map(cmd => ({
         ...cmd,
         description: cmd.description || `Ch ${cmd.channel} = ${cmd.value}`,
       }));
 
+      // ─── SAFETY GATE : valider les commandes DMX issues de l'IA AVANT exécution.
+      // Bornes (canal 1..512, value 0..255, universe>=1) + canaux dangereux non
+      // armés bloqués. L'IA ne peut pas armer la sécurité (laserArmed/pyroArmed
+      // ne sont pilotés que par l'opérateur / le socket safety_status).
+      const safetyCtx = buildSafetyContext();
+      const dmxValidation = validateOrchestratorActions(
+        rawCommands.map(cmd => ({ universe: cmd.universe, channel: cmd.channel, value: cmd.value })),
+        safetyCtx,
+      );
+
+      // On ne garde que les commandes autorisées, en réassociant leur description
+      // d'origine (par index : validateOrchestratorActions préserve l'ordre des applied
+      // mais retire les bloquées). On filtre rawCommands selon la validation par action.
+      const blockedKeys = new Set(
+        dmxValidation.blocked.map(b => `${b.action.universe}:${b.action.channel}:${b.action.value}`),
+      );
+      const commands = rawCommands
+        .filter(cmd => !blockedKeys.has(`${cmd.universe}:${cmd.channel}:${cmd.value}`))
+        .map(cmd => {
+          // Appliquer la valeur bornée si elle a été clampée.
+          const appliedMatch = dmxValidation.applied.find(
+            a => a.universe === cmd.universe && a.channel === cmd.channel,
+          );
+          return appliedMatch ? { ...cmd, value: appliedMatch.value } : cmd;
+        });
+
+      // Signaler chaque commande bloquée (toast + log timeline + entrée chat).
+      if (dmxValidation.blocked.length > 0) {
+        const summary = dmxValidation.blocked
+          .map(b => `Ch${b.action.channel}: ${b.reason}`)
+          .join(" · ");
+        addToast({
+          type: "warning",
+          message: "Safety Gate — commandes DMX bloquées",
+          detail: `${dmxValidation.blocked.length} bloquée(s) : ${summary}`.slice(0, 200),
+          duration: 5000,
+        });
+        socket.emit("timeline_log", {
+          type: "warn",
+          text: `[IA Lumière] ${dmxValidation.blocked.length} commande(s) DMX bloquée(s) par la safety : ${summary}`,
+        });
+      }
+
       const safetyResult = await filterUnsafeAiActions(parsed.actions || [], "ai", addToast);
       const actions = safetyResult.accepted;
 
-      // Apply DMX commands
+      // Apply DMX commands (uniquement les commandes validées)
       commands.forEach(cmd => {
         dmxEngine.setChannel(cmd.universe, cmd.channel, cmd.value);
         socket.emit("dmx_update", { universe: cmd.universe, channel: cmd.channel, value: cmd.value });
