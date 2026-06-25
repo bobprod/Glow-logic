@@ -4,6 +4,12 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { API_BASE } from "../lib/config";
 import {
+  FIXTURE_CATEGORY_LIST,
+  inferFixtureCategory,
+  type FixtureCategoryId,
+  type FixtureGroup,
+} from "../lib/fixtureCategories";
+import {
   Upload, Loader2, Save, Trash2, Plus, Wand2,
   FileImage, AlertCircle, CheckCircle2, X, ArrowLeft,
   Sparkles, Cpu, RefreshCw, Eye,
@@ -81,6 +87,15 @@ const PROVIDER_LABELS: Record<string, string> = {
   opencode: "OpenCode",
 };
 
+// ─── Libellés FR des groupes d'équipement ────────────────────────
+const FIXTURE_GROUP_LABELS: Record<FixtureGroup, string> = {
+  movement: "Mouvement",
+  static: "Lumière statique",
+  effect: "Effets",
+  video: "Vidéo",
+};
+const FIXTURE_GROUP_ORDER: FixtureGroup[] = ["movement", "static", "effect", "video"];
+
 // ─── Props optionnelles (mode embarqué dans PatchPanel) ──────────
 interface FixturesPageProps {
   onSaved?: (data: { id: number; name: string; totalChannels: number; startAddress: number }) => void;
@@ -111,6 +126,11 @@ export default function FixturesPage({ onSaved, embedded }: FixturesPageProps = 
   const [currentFixtureId, setCurrentFixtureId] = useState<number | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
 
+  // Catégorie d'équipement (type de matériel). undefined ⇒ on laisse l'inférence
+  // proposer une valeur. categoryManual=true dès que l'utilisateur choisit lui-même.
+  const [category, setCategory] = useState<FixtureCategoryId | undefined>(undefined);
+  const [categoryManual, setCategoryManual] = useState(false);
+
   // État UI
   const [fixtures, setFixtures]   = useState<Fixture[]>([]);
   const [error, setError]         = useState<string | null>(null);
@@ -139,6 +159,13 @@ export default function FixturesPage({ onSaved, embedded }: FixturesPageProps = 
       setSelectedMode(modeName);
     }
   }, [aiResult]);
+
+  // ─── Pré-remplissage de la catégorie (inférence, sans écraser un choix manuel) ─
+  useEffect(() => {
+    if (categoryManual) return; // l'utilisateur a tranché : on n'y touche plus
+    const inferred = inferFixtureCategory(fixtureName, channels.map((c) => c.type));
+    setCategory(inferred);
+  }, [fixtureName, channels, categoryManual]);
 
   // ─── Helper : lire la config LLM depuis localStorage ──────────
   const readLLMConfig = (): { provider: string; key: string; model: string; baseURL: string; apiFormat: string } | null => {
@@ -350,6 +377,7 @@ export default function FixturesPage({ onSaved, embedded }: FixturesPageProps = 
           channels,
           notes:        notes || undefined,
           startAddress,
+          category:     category || undefined,
           modes:        modesPayload,
         }),
       });
@@ -381,6 +409,13 @@ export default function FixturesPage({ onSaved, embedded }: FixturesPageProps = 
       setNotes(data.notes || "");
       setChannels(data.channels || []);
       setStartAddress(data.start_address ?? 1);
+      // Restaurer la catégorie sauvegardée (choix explicite ⇒ figé contre l'inférence)
+      if (data.category) {
+        setCategory(data.category as FixtureCategoryId);
+        setCategoryManual(true);
+      } else {
+        setCategoryManual(false);
+      }
       // Restaurer les modes si sauvegardés
       if (data.modes?.length > 0) {
         setAllModes(data.modes);
@@ -421,6 +456,7 @@ export default function FixturesPage({ onSaved, embedded }: FixturesPageProps = 
     setAiResult(null); setScanInfo(null); setSelectedMode("");
     setAllModes([]); setStartAddress(1); setCurrentFixtureId(null);
     setScanPhase("idle"); setLastImageFiles([]);
+    setCategory(undefined); setCategoryManual(false);
   };
 
   const sortChannels = () =>
@@ -771,6 +807,29 @@ export default function FixturesPage({ onSaved, embedded }: FixturesPageProps = 
                   onChange={(e) => setStartAddress(Math.max(1, Math.min(512, parseInt(e.target.value) || 1)))}
                   className="w-full bg-[#0a0c10] border border-slate-700 focus:border-cyan-500 rounded px-3 py-2 text-sm text-white outline-none transition font-mono"
                 />
+              </div>
+              <div className="col-span-2 md:col-span-4">
+                <label className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                  Type d&apos;équipement
+                </label>
+                <select
+                  value={category ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setCategoryManual(true);
+                    setCategory(v ? (v as FixtureCategoryId) : undefined);
+                  }}
+                  className="w-full bg-[#0a0c10] border border-slate-700 focus:border-cyan-500 rounded px-3 py-2 text-sm text-white outline-none transition"
+                >
+                  <option value="">— Non défini —</option>
+                  {FIXTURE_GROUP_ORDER.map((group) => (
+                    <optgroup key={group} label={FIXTURE_GROUP_LABELS[group]}>
+                      {FIXTURE_CATEGORY_LIST.filter((cat) => cat.group === group).map((cat) => (
+                        <option key={cat.id} value={cat.id}>{cat.label}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
               </div>
               <div className="col-span-2 md:col-span-4">
                 <label className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">

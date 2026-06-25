@@ -20,7 +20,7 @@ import ColorPickerNode from "./nodes/ColorPickerNode";
 import FixtureNode from "./nodes/FixtureNode";
 
 import { Suspense, lazy } from "react";
-import { Settings2, Check, ArrowRight } from "lucide-react";
+import { Settings2, Check, ArrowRight, Wand2, X } from "lucide-react";
 import TopBar from "./TopBar";
 import MidiListener from "./MidiListener";
 import { ToastContainer } from "./ui/ToastContainer";
@@ -41,6 +41,7 @@ const GuidedTour = lazy(() => import("./ui/GuidedTour"));
 const LivePerformanceView = lazy(() => import("./smart/LivePerformanceView"));
 const SceneController = lazy(() => import("./smart/SceneController"));
 const FixturesPage = lazy(() => import("./FixturesPage"));
+const OrchestratorController = lazy(() => import("./OrchestratorController"));
 
 // Custom node types
 const nodeTypes = {
@@ -241,6 +242,7 @@ export default function AppShell({ routeMode }: AppShellProps = {}) {
     livePerformanceMode, setLivePerformanceMode,
   } = useStore();
   const [placeView, setPlaceView] = useState<"2d" | "3d">("2d");
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [needsPairing, setNeedsPairing] = useState(false);
   const [pairingToken, setPairingToken] = useState("");
@@ -526,6 +528,27 @@ export default function AppShell({ routeMode }: AppShellProps = {}) {
           <div className="relative flex-1 flex overflow-hidden bg-[#07090e]">
             {/* RAIL GAUCHE : pipeline numéroté 4 étapes + Avancé */}
             <nav className="w-[150px] shrink-0 border-r border-white/5 bg-[#0a0c10] flex flex-col p-3 gap-1.5">
+              {/* Copilote centrale : IA Lumière, dispo depuis toutes les étapes */}
+              <button
+                onClick={() => setAiPanelOpen((v) => !v)}
+                className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs tracking-wide transition-all cursor-pointer border ${
+                  aiPanelOpen
+                    ? "bg-violet-500/25 border-violet-400/60 text-violet-200 shadow-[0_0_18px_rgba(139,92,246,0.35)]"
+                    : "bg-violet-500/10 border-violet-500/40 text-violet-300 hover:bg-violet-500/20"
+                }`}
+                title="IA Lumière (copilote)"
+              >
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-500 text-white">
+                  <Wand2 className="h-3.5 w-3.5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold leading-tight">IA Lumière</span>
+                  <span className="block text-[10px] text-violet-400/70 leading-tight">Copilote</span>
+                </span>
+              </button>
+
+              <div className="my-1.5 h-px bg-white/5" />
+
               {GUIDED_STEPS.map((step) => {
                 const stepIdx = GUIDED_ORDER.indexOf(step.key);
                 const isActive = designStep === step.key;
@@ -717,6 +740,30 @@ export default function AppShell({ routeMode }: AppShellProps = {}) {
               >
                 ◀
               </button>
+            )}
+
+            {/* DRAWER IA Lumière — overlay droit, dispo depuis toutes les étapes DESIGN */}
+            {aiPanelOpen && (
+              <div className="absolute right-0 top-0 bottom-0 w-[380px] z-50 bg-[#0c0e12] border-l border-white/5 flex flex-col shadow-[0_0_40px_rgba(0,0,0,0.6)]">
+                <div className="flex items-center justify-between bg-[#07090e] border-b border-white/5 px-3 py-2 shrink-0">
+                  <h2 className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-violet-300">
+                    <Wand2 className="h-3.5 w-3.5" />
+                    IA Lumière
+                  </h2>
+                  <button
+                    onClick={() => setAiPanelOpen(false)}
+                    className="p-1.5 text-slate-600 hover:text-slate-200 transition-colors cursor-pointer"
+                    title="Fermer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <Suspense fallback={<div className="h-full flex items-center justify-center text-slate-500 text-sm">Loading IA Lumière...</div>}>
+                    <OrchestratorController />
+                  </Suspense>
+                </div>
+              </div>
             )}
           </div>
           );

@@ -12,6 +12,22 @@ import {
   SlidersHorizontal, Mic, ChevronDown, ChevronRight, X
 } from "lucide-react";
 import useStore from "@/store/useStore";
+import {
+  inferFixtureCategory,
+  getCategory,
+  isArmingRequired,
+  isHazard,
+  type FixtureCategoryId,
+} from "../lib/fixtureCategories";
+
+// Catégorie effective d'une fixture : explicite (fixture.category) sinon inférée
+// depuis le nom + les types de canaux. Tolère les formes de fixture variées
+// (store PatchedFixture ou objet brut passé en prop).
+const effectiveCategory = (f: any): FixtureCategoryId => {
+  if (f?.category) return f.category as FixtureCategoryId;
+  const channelTypes = (f?.channels || []).map((c: any) => String(c?.type ?? ""));
+  return inferFixtureCategory(String(f?.name ?? ""), channelTypes);
+};
 
 interface DmxCommand {
   universe: number;
@@ -115,12 +131,18 @@ export default function OrchestratorController({ fixtures: propFixtures = [] }: 
       fixtureText = activeFixtures.map((f, i) => {
         const start = f.start_address || f.startAddress || 1;
         const universe = f.universe || 1;
+        const catId = effectiveCategory(f);
+        const cat = getCategory(catId);
+        const flags: string[] = [];
+        if (isArmingRequired(catId)) flags.push("EFFET A ARMER");
+        if (isHazard(catId)) flags.push("DANGER (laser/pyro)");
+        const flagText = flags.length > 0 ? ` ⚠ ${flags.join(' — ')}` : '';
         const channels = (f.channels || []).map((ch: any) => {
           const abs = start + ch.channel - 1;
           const live = dmxEngine.getChannel(universe, abs);
           return `Canal ${abs} (${ch.type}/${ch.function || ch.name}): ${live}`;
         }).join(', ');
-        return `${i + 1}. "${f.name}" U${universe} @ ${start}: ${channels}`;
+        return `${i + 1}. "${f.name}" [${cat.label}]${flagText} U${universe} @ ${start}: ${channels}`;
       }).join('\n');
     }
 
@@ -143,6 +165,11 @@ Playlist: ${playlist.length} piste(s)
 
 ### Fixtures DMX connectées:
 ${fixtureText}
+
+## RAISONNEMENT PAR FAMILLES D'ÉQUIPEMENT
+Chaque fixture est typée par sa FAMILLE (libellé entre crochets, ex: [Lyre Spot], [PAR / Wash LED], [Laser]).
+Raisonne TOUJOURS par familles : adapte tes commandes au type (les lyres ont pan/tilt/gobo, les PAR sont des washes de couleur, les strobes flashent, les barres LED sont des pixels, etc.) — n'envoie pas de pan/tilt à un PAR ni de couleur RGB à un strobe simple.
+SÉCURITÉ ABSOLUE : un équipement marqué « EFFET A ARMER » ou « DANGER (laser/pyro) » NE DOIT JAMAIS être activé tant qu'il n'est pas armé par l'opérateur. N'émets aucune commande vers ses canaux : la safety les bloquera et tu perdras l'action. Ignore ces fixtures dans tes scènes sauf demande explicite ET armement confirmé.
 
 ## FORMAT DE RÉPONSE (JSON strict)
 Réponds UNIQUEMENT avec un objet JSON valide:
@@ -234,10 +261,22 @@ Ne mets AUCUN texte en dehors du JSON.`;
   const buildSafetyContext = (): { dangerousChannels: Set<number>; dangerousArmed: boolean } => {
     const dangerous = new Set<number>();
     for (const f of activeFixtures) {
+      // Détection historique (regex laser/pyro sur nom + canaux).
       const hazard = fixtureHazard(f);
-      if (!hazard) continue;
-      const armed = hazard === "laser" ? laserArmed : pyroArmed;
-      if (armed) continue; // hazard armé => ses canaux passent normalement
+
+      // Détection par FAMILLE : tout équipement « à armer » (effet ou danger)
+      // dont l'armement est absent doit être bloqué. Pour le laser on réutilise
+      // laserArmed ; pour pyro ET tous les autres effets (fumigène/hazer/co2…)
+      // on applique le gate conservateur pyroArmed (bloqué tant que non armé).
+      const catId = effectiveCategory(f);
+      const armingRequired = isArmingRequired(catId);
+      const isLaser = hazard === "laser" || catId === "laser";
+
+      // La fixture est concernée si l'un des deux signaux la marque dangereuse.
+      if (!hazard && !armingRequired) continue;
+
+      const armed = isLaser ? laserArmed : pyroArmed;
+      if (armed) continue; // armé => ses canaux passent normalement
       const start = f.start_address || f.startAddress || 1;
       const total = Math.max(
         Number(f.total_channels || f.totalChannels || 0),
