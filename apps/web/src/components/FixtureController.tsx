@@ -4,6 +4,12 @@ import React, { useEffect } from "react";
 import { Lightbulb, Filter } from "lucide-react";
 import useStore from "@/store/useStore";
 import FixtureInspectorPanel from "./smart/FixtureInspectorPanel";
+import {
+  getCategory,
+  getSafetyClass,
+  inferFixtureCategory,
+} from "@/lib/fixtureCategories";
+import { CategoryIcon, safetyBadge } from "@/lib/fixtureCategoryIcon";
 
 interface FixtureControllerProps {
   className?: string;
@@ -79,6 +85,16 @@ export default function FixtureController({ className = "" }: FixtureControllerP
           {visibleFixtures.map((fixture) => {
             const nodeId = fixture.nodeId || `fixture-${fixture.id}`;
             const selected = selectedFixtureIds.includes(nodeId) || selectedFixtureId === nodeId;
+            // Catégorie : stockée si présente, sinon inférée à la volée depuis
+            // le nom + la signature des canaux.
+            const catId =
+              fixture.category ??
+              inferFixtureCategory(
+                fixture.name,
+                (fixture.channels || []).map((c) => String(c.type)),
+              );
+            const category = getCategory(catId);
+            const badge = safetyBadge(getSafetyClass(catId));
             return (
               <button
                 key={nodeId}
@@ -89,9 +105,19 @@ export default function FixtureController({ className = "" }: FixtureControllerP
                     : "border-white/5 bg-black/25 text-slate-400 hover:text-white"
                 }`}
               >
-                <span className="block truncate text-xs font-bold">{fixture.name}</span>
-                <span className="mt-0.5 block text-[10px] text-slate-500">
-                  U{fixture.universe} Ch {fixture.startAddress || fixture.start_address}
+                <div className="flex items-center gap-1.5">
+                  <CategoryIcon categoryId={catId} className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1 truncate text-xs font-bold">{fixture.name}</span>
+                  {badge && (
+                    <span
+                      className={`shrink-0 rounded border px-1 py-0.5 text-[9px] font-black uppercase tracking-wider ${badge.className}`}
+                    >
+                      {badge.label}
+                    </span>
+                  )}
+                </div>
+                <span className="mt-0.5 block truncate text-[10px] text-slate-500">
+                  {category.label} · U{fixture.universe} Ch {fixture.startAddress || fixture.start_address}
                 </span>
               </button>
             );

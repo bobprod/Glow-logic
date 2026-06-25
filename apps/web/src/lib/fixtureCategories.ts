@@ -75,7 +75,7 @@ export const FIXTURE_CATEGORIES: Record<FixtureCategoryId, FixtureCategory> = {
   },
   lyre_beam: {
     id: "lyre_beam", label: "Lyre Beam", group: "movement", safety: "normal",
-    icon: "FlashlightIcon", moving: true,
+    icon: "Flashlight", moving: true,
     keywords: ["beam", "sharpy", "pointe"],
   },
   scanner: {
