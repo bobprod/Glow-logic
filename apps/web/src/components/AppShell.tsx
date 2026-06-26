@@ -42,6 +42,7 @@ const LivePerformanceView = lazy(() => import("./smart/LivePerformanceView"));
 const LooksBoard = lazy(() => import("./smart/LooksBoard"));
 const FixturesPage = lazy(() => import("./FixturesPage"));
 const OrchestratorController = lazy(() => import("./OrchestratorController"));
+import EffectsArmingControl from "./smart/EffectsArmingControl";
 
 // Custom node types
 const nodeTypes = {
@@ -606,15 +607,19 @@ export default function AppShell({ routeMode }: AppShellProps = {}) {
                 </span>
               </button>
 
-              {/* Bouton Suivant → (masqué sur sequence/advanced) */}
-              {nextStep && (
-                <button
-                  onClick={() => setDesignStep(nextStep)}
-                  className="mt-auto flex items-center justify-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 px-2.5 py-2 text-xs font-bold tracking-wide text-purple-300 transition-all hover:bg-purple-500/20 cursor-pointer"
-                >
-                  Suivant <ArrowRight className="h-3.5 w-3.5" />
-                </button>
-              )}
+              {/* Bas du rail : armement des effets (laser/pyro/fumigène) + Suivant */}
+              <div className="mt-auto flex flex-col gap-1.5">
+                <EffectsArmingControl />
+                {/* Bouton Suivant → (masqué sur sequence/advanced) */}
+                {nextStep && (
+                  <button
+                    onClick={() => setDesignStep(nextStep)}
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 px-2.5 py-2 text-xs font-bold tracking-wide text-purple-300 transition-all hover:bg-purple-500/20 cursor-pointer"
+                  >
+                    Suivant <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </nav>
 
             {/* ZONE CENTRALE : viewport contextuel selon designStep */}
