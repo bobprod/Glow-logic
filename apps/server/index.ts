@@ -545,7 +545,14 @@ app.post("/api/llm/chat", async (req, res) => {
         max_tokens?: number;
         prompt?: string;
         systemPrompt?: string;
+        jsonMode?: boolean;
+        responseSchema?: unknown;
       };
+    // Sortie structurée optionnelle (cf. IA Lumière). Le mécanisme diffère par
+    // provider : NVIDIA NIM => nvext.guided_json (xgrammar, le plus fiable),
+    // OpenAI-compatible (OpenRouter, etc.) => response_format json_object.
+    const wantJson = Boolean((req.body as { jsonMode?: boolean }).jsonMode);
+    const responseSchema = (req.body as { responseSchema?: unknown }).responseSchema;
 
     // Support legacy format: prompt + systemPrompt → messages
     if (!messages && req.body.prompt) {
@@ -637,19 +644,35 @@ app.post("/api/llm/chat", async (req, res) => {
     }
 
     // Format OpenAI-compatible (défaut)
+    const requestBody: Record<string, unknown> = {
+      model: targetModel,
+      messages,
+      temperature,
+      max_tokens,
+      stream: false,
+    };
+
+    // Sortie structurée : injecte le bon paramètre selon le provider (cf. recherche
+    // NVIDIA NIM vs OpenRouter). Activé uniquement si le client le demande (jsonMode)
+    // — les autres usages LLM ne sont pas affectés.
+    if (wantJson) {
+      const isNvidia = /nvidia|\bnim\b|integrate\.api\.nvidia/i.test(`${provider} ${targetUrl}`);
+      if (isNvidia && responseSchema && typeof responseSchema === "object") {
+        // NVIDIA NIM : guided_json (xgrammar) — adhérence stricte au schéma.
+        requestBody.nvext = { guided_json: responseSchema };
+      } else {
+        // OpenAI-compatible (OpenRouter, OpenAI, vLLM…) : JSON mode universel.
+        requestBody.response_format = { type: "json_object" };
+      }
+    }
+
     response = await fetch(targetUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model: targetModel,
-        messages,
-        temperature,
-        max_tokens,
-        stream: false,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {

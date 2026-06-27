@@ -67,6 +67,42 @@ interface AiResponse {
   actions?: AiAction[];
 }
 
+// Schéma JSON de la réponse IA, envoyé au backend pour forcer une SORTIE
+// STRUCTURÉE (NVIDIA NIM guided_json / OpenAI json mode). Fiabilise la boucle
+// IA→Looks : le modèle ne peut plus répondre en prose libre. Le parsing regex
+// reste en filet de sécurité si un provider ignore la consigne.
+const AI_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    description: { type: "string" },
+    commands: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          universe: { type: "integer" },
+          channel: { type: "integer" },
+          value: { type: "integer" },
+          description: { type: "string" },
+        },
+        required: ["channel", "value"],
+      },
+    },
+    actions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string" },
+          payload: { type: "object" },
+        },
+        required: ["type"],
+      },
+    },
+  },
+  required: ["description"],
+} as const;
+
 interface HistoryEntry {
   prompt: string;
   response: string;
@@ -420,6 +456,8 @@ Ne mets AUCUN texte en dehors du JSON.`;
         body: JSON.stringify({
           systemPrompt: buildSystemPrompt(),
           prompt: userPrompt,
+          jsonMode: true,
+          responseSchema: AI_RESPONSE_SCHEMA,
         }),
       });
 
