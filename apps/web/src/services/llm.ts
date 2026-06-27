@@ -10,6 +10,7 @@ export type LLMProvider =
   | "anthropic"
   | "openrouter"
   | "opencode"
+  | "opencode-zen"
   | "gemini"
   | "deepseek"
   | "qwen"

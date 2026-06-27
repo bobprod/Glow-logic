@@ -58,7 +58,8 @@ type ProviderId =
   | "nvidia"
   | "huggingface"
   | "openrouter"
-  | "opencode";
+  | "opencode"
+  | "opencode-zen";
 
 type AuthInfo = {
   token: string;
@@ -207,6 +208,28 @@ const LLM_PROVIDERS: Provider[] = [
     apiFormat: "openai-compatible",
     note: "1. Connectez-vous sur opencode.ai/auth  2. Copiez votre clé API  3. Collez-la ci-dessus",
   },
+  {
+    id: "opencode-zen",
+    name: "OpenCode Zen",
+    color: "teal",
+    keyPlaceholder: "oc-...",
+    docsUrl: "https://opencode.ai/auth",
+    // Endpoint Zen actuel (OpenAI-compatible). Modèles gratuits = suffixe -free.
+    models: [
+      "deepseek-v4-flash-free",
+      "mimo-v2.5-free",
+      "qwen3.6-plus-free",
+      "deepseek-v4-pro",
+      "qwen3.6-plus",
+      "kimi-k2.6",
+      "glm-5.1",
+      "minimax-m2.7",
+    ],
+    defaultModel: "deepseek-v4-flash-free",
+    baseURL: "https://opencode.ai/zen/v1/chat/completions",
+    apiFormat: "openai-compatible",
+    note: "Endpoint Zen actuel. Modèles gratuits (suffixe -free) : deepseek-v4-flash-free, mimo-v2.5-free, qwen3.6-plus-free. Clé sur opencode.ai/auth.",
+  },
 ];
 
 const PROVIDER_THEMES: Record<ProviderId, {
@@ -282,6 +305,14 @@ const PROVIDER_THEMES: Record<ProviderId, {
     activeBg: "bg-pink-500/10",
   },
   opencode: {
+    border: "border-teal-500/10",
+    bg: "bg-teal-500/[0.02]",
+    text: "text-teal-400",
+    glow: "shadow-[0_0_15px_rgba(20,184,166,0.1)]",
+    activeBorder: "border-teal-500/50",
+    activeBg: "bg-teal-500/10",
+  },
+  "opencode-zen": {
     border: "border-teal-500/10",
     bg: "bg-teal-500/[0.02]",
     text: "text-teal-400",
