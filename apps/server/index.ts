@@ -878,7 +878,7 @@ app.get("/api/fixtures/:id", (req, res) => {
 
 app.post("/api/fixtures", (req, res) => {
   try {
-    const { id, name, manufacturer, channels, notes, startAddress, modes, gridPosition } = req.body;
+    const { id, name, manufacturer, channels, notes, startAddress, modes, gridPosition, category } = req.body;
     if (!name || !Array.isArray(channels)) {
       return res.status(400).json({ error: "Nom et channels obligatoires" });
     }
@@ -888,6 +888,7 @@ app.post("/api/fixtures", (req, res) => {
       startAddress ? Number(startAddress) : 1,
       Array.isArray(modes) ? modes : undefined,
       gridPosition && typeof gridPosition === "object" ? gridPosition : undefined,
+      typeof category === "string" && category ? category : undefined,
     );
     res.json({ id: savedId, success: true });
   } catch (error) {

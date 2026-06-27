@@ -20,6 +20,25 @@ import {
   type FixtureCategoryId,
 } from "../lib/fixtureCategories";
 
+// Nombre de slots par page de pads (aligné sur LooksBoard/SceneController).
+const SLOTS_PER_PAGE = 16;
+
+// Premier slot libre (page, slot) — réplique EXACTEMENT la logique de création
+// d'un pad par défaut de LooksBoard.firstFreeSlot : parcourt 4 pages × 16 slots
+// et renvoie la première position non occupée par un pad existant.
+const firstFreePadSlot = (
+  pads: Array<{ page: number; slot: number }>,
+): { page: number; slot: number } => {
+  for (let page = 0; page < 4; page += 1) {
+    for (let slot = 0; slot < SLOTS_PER_PAGE; slot += 1) {
+      if (!pads.some((pad) => pad.page === page && pad.slot === slot)) {
+        return { page, slot };
+      }
+    }
+  }
+  return { page: 0, slot: 0 };
+};
+
 // Catégorie effective d'une fixture : explicite (fixture.category) sinon inférée
 // depuis le nom + les types de canaux. Tolère les formes de fixture variées
 // (store PatchedFixture ou objet brut passé en prop).
@@ -296,19 +315,33 @@ Ne mets AUCUN texte en dehors du JSON.`;
         switch (action.type) {
           case "CREATE_PAD": {
             const p = action.payload;
-            const nextWidget = pads.length > 0 ? Math.max(...pads.map(x => x.qlcWidget)) + 1 : 20;
+            // Création canonique (alignée sur LooksBoard/SceneController) : on place le
+            // Look sur le premier slot libre et on dérive qlcWidget = 80 + page*16 + slot.
+            // C'est ce qui le rend VISIBLE dans LooksBoard (page/slot cohérents) et
+            // jouable par PERFORM (qlcWidget = clé d'activation de triggerSmartPad).
+            const { page, slot } = firstFreePadSlot(pads);
+            // Accepte dmxValues OU dmxCommands renvoyés par l'IA pour que le Look
+            // porte réellement des canaux (sinon carte "0 canal" non jouable).
+            const dmxValues = (p.dmxValues && typeof p.dmxValues === "object") ? p.dmxValues : {};
+            const dmxCommands = Array.isArray(p.dmxCommands) ? p.dmxCommands : undefined;
             addSmartPad({
-              id: Date.now() + Math.random(),
+              id: Date.now() + Math.floor(Math.random() * 1000),
               name: p.name || "Pad IA",
               color: p.color || "bg-purple-500",
               textColor: p.textColor || "text-purple-400",
               iconName: p.iconName || "Sparkles",
               qlcPage: 1,
-              qlcWidget: nextWidget,
-              dmxValues: p.dmxValues || {},
+              qlcWidget: 80 + page * SLOTS_PER_PAGE + slot,
+              dmxValues,
+              ...(dmxCommands ? { dmxCommands } : {}),
               midiNote: p.midiNote ?? -1,
               midiChannel: p.midiChannel ?? 1,
-              gridCol: 0, gridRow: 0, gridW: 1, gridH: 1,
+              gridCol: slot % 4,
+              gridRow: Math.floor(slot / 4),
+              gridW: 1,
+              gridH: 1,
+              page,
+              slot,
             });
             break;
           }

@@ -37,6 +37,7 @@ db.exec(`
     start_address INTEGER NOT NULL DEFAULT 1,
     grid_position TEXT,
     modes TEXT,
+    category TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -92,6 +93,7 @@ for (const sql of [
   `ALTER TABLE fixtures ADD COLUMN start_address INTEGER NOT NULL DEFAULT 1`,
   `ALTER TABLE fixtures ADD COLUMN grid_position TEXT`,
   `ALTER TABLE fixtures ADD COLUMN modes TEXT`,
+  `ALTER TABLE fixtures ADD COLUMN category TEXT`,
 ]) {
   try { db.exec(sql); } catch { /* colonne deja presente */ }
 }
@@ -328,6 +330,7 @@ export interface FixtureRecord {
   start_address: number;
   gridPosition: { x: number; y: number; z: number } | null;
   modes: FixtureMode[] | null;
+  category: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -340,6 +343,7 @@ export interface FixtureListing {
   total_channels: number;
   start_address: number;
   gridPosition: { x: number; y: number; z: number } | null;
+  category: string | null;
   updated_at: string;
 }
 
@@ -370,28 +374,30 @@ export const saveFixture = (
   startAddress?: number,
   modes?: any[],
   gridPosition?: { x: number; y: number; z?: number } | null,
+  category?: string | null,
 ): number => {
   const jsonChannels = JSON.stringify(channels);
   const jsonModes    = modes ? JSON.stringify(modes) : null;
   const jsonGrid     = gridPosition ? JSON.stringify(gridPosition) : null;
   const total        = channels.length;
   const addr         = startAddress ?? 1;
+  const cat          = category ?? null;
 
   if (id) {
     db.prepare(
-      "UPDATE fixtures SET name=?, manufacturer=?, channels=?, total_channels=?, notes=?, start_address=?, modes=?, grid_position=COALESCE(?, grid_position), updated_at=CURRENT_TIMESTAMP WHERE id=?",
-    ).run(name, manufacturer ?? null, jsonChannels, total, notes ?? null, addr, jsonModes, jsonGrid, id);
+      "UPDATE fixtures SET name=?, manufacturer=?, channels=?, total_channels=?, notes=?, start_address=?, modes=?, grid_position=COALESCE(?, grid_position), category=COALESCE(?, category), updated_at=CURRENT_TIMESTAMP WHERE id=?",
+    ).run(name, manufacturer ?? null, jsonChannels, total, notes ?? null, addr, jsonModes, jsonGrid, cat, id);
     return id;
   }
   const result = db.prepare(
-    "INSERT INTO fixtures (name, manufacturer, channels, total_channels, notes, start_address, modes, grid_position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(name, manufacturer ?? null, jsonChannels, total, notes ?? null, addr, jsonModes, jsonGrid);
+    "INSERT INTO fixtures (name, manufacturer, channels, total_channels, notes, start_address, modes, grid_position, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(name, manufacturer ?? null, jsonChannels, total, notes ?? null, addr, jsonModes, jsonGrid, cat);
   return Number(result.lastInsertRowid);
 };
 
 export const getFixtures = (): FixtureListing[] => {
   const rows = db.prepare(
-    "SELECT id, name, manufacturer, channels, total_channels, start_address, grid_position, updated_at FROM fixtures ORDER BY updated_at DESC",
+    "SELECT id, name, manufacturer, channels, total_channels, start_address, grid_position, category, updated_at FROM fixtures ORDER BY updated_at DESC",
   ).all() as any[];
   return rows.map(r => {
     try {

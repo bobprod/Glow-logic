@@ -107,6 +107,21 @@ const VALID_SMART_WIDGET_IDS = new Set<SmartWidgetType>(DEFAULT_WIDGETS.map((wid
 let previewSavedGate: DmxOutputsConfig | null = null;
 const stagePlanSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+// --- Anti-martèlement de fetchFixtures (backoff réseau) -------------------
+// Garde local au slice : évite que les nombreux appelants (effets de montage,
+// reconnexions socket, panneaux qui re-fetch tant que fixtures est vide)
+// martèlent GET /api/fixtures quand le backend (port 3005) est injoignable.
+// Comportement INCHANGÉ quand tout va bien : succès => reset complet.
+const FIXTURES_BACKOFF_STEPS_MS = [1000, 2000, 5000, 10000, 30000];
+const FIXTURES_LOG_THROTTLE_MS = 10000;
+let fixturesInFlight = false;          // un fetch est déjà en cours
+let fixturesFailureStreak = 0;         // échecs réseau consécutifs
+let fixturesRetryNotBefore = 0;        // timestamp (ms) avant lequel on saute l'appel
+let fixturesLastErrorLogAt = 0;        // dernier console.error (throttle)
+
+const fixturesNow = (): number =>
+    typeof performance !== 'undefined' ? performance.now() : Date.now();
+
 // Flash (A5 contract): snapshot transitoire des valeurs DMX avant un flash momentane.
 // Vit HORS du state persiste (Map module-level keyee par sceneId).
 // flashPadOn capture { universe, channel, value } courants; flashPadOff restaure puis purge.
@@ -747,14 +762,39 @@ export const createSmartModeSlice: StateCreator<SmartModeSlice, [], [], SmartMod
         set({ previewMode: enabled });
     },
     fetchFixtures: async () => {
+        // Anti-concurrence : un seul fetch à la fois.
+        if (fixturesInFlight) return;
+        // Backoff : tant que le délai n'est pas écoulé, on saute l'appel (le
+        // backend est considéré injoignable). N'affecte PAS le cas nominal car
+        // fixturesRetryNotBefore reste à 0 tant qu'aucun échec ne survient.
+        if (fixturesFailureStreak > 0 && fixturesNow() < fixturesRetryNotBefore) return;
+
+        fixturesInFlight = true;
         try {
             const response = await fetch(`${API_BASE}/api/fixtures`);
             if (response.ok) {
                 const data = await response.json();
                 set({ fixtures: Array.isArray(data) ? data.map(normalizeFixtureRecord) : [] });
             }
+            // Succès réseau (même si !ok) : le backend répond => reset du backoff.
+            fixturesFailureStreak = 0;
+            fixturesRetryNotBefore = 0;
         } catch (error) {
-            console.error('Failed to fetch fixtures', error);
+            // Échec réseau : on planifie un retry de plus en plus espacé,
+            // plafonné, au lieu de re-tenter immédiatement en boucle.
+            const step = FIXTURES_BACKOFF_STEPS_MS[
+                Math.min(fixturesFailureStreak, FIXTURES_BACKOFF_STEPS_MS.length - 1)
+            ];
+            fixturesFailureStreak += 1;
+            fixturesRetryNotBefore = fixturesNow() + step;
+            // Log throttlé : au plus une erreur toutes les ~10s.
+            const now = fixturesNow();
+            if (now - fixturesLastErrorLogAt >= FIXTURES_LOG_THROTTLE_MS) {
+                fixturesLastErrorLogAt = now;
+                console.error(`Failed to fetch fixtures (retry in ${step}ms)`, error);
+            }
+        } finally {
+            fixturesInFlight = false;
         }
     },
     triggerSmartPad: (pad) => {
