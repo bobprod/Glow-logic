@@ -316,6 +316,9 @@ export default function MacroTimeline() {
     // chasers animés, même famille) ; "cues" = structure/séquence du show
     // (niveau différent, gardé à part) ; automations/visualizer = modes d'affichage.
     const [arrangementTab, setArrangementTab] = useState<'blocs' | 'cues' | 'automations' | 'visualizer'>('blocs');
+    // Sous-vue de l'onglet "Blocs" : un seul panneau à la fois (Scènes OU Chasers)
+    // pour éviter un scroll trop chargé.
+    const [blocsView, setBlocsView] = useState<'scenes' | 'chasers'>('scenes');
 
     // Refs
     const tracksBodyRef = useRef<HTMLDivElement>(null); // zone tracks (sans labels)
@@ -1870,14 +1873,30 @@ export default function MacroTimeline() {
 
                     <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
                         {arrangementTab === 'blocs' && (
-                            <div className="space-y-3">
-                                <SceneClipPanel />
-                                <div className="flex items-center gap-2 pt-1">
-                                    <div className="h-px flex-1 bg-[#262c36]" />
-                                    <span className="text-[8px] font-black uppercase tracking-widest text-slate-500">Chasers · animés</span>
-                                    <div className="h-px flex-1 bg-[#262c36]" />
+                            <div className="flex flex-col gap-2 min-h-0 flex-1">
+                                {/* Sous-sélecteur : un seul panneau à la fois (évite le scroll chargé) */}
+                                <div className="flex items-center gap-1 shrink-0">
+                                    {[
+                                        { id: 'scenes', label: 'Scènes', hint: 'Statiques' },
+                                        { id: 'chasers', label: 'Chasers', hint: 'Animés' },
+                                    ].map((sub) => (
+                                        <button
+                                            key={sub.id}
+                                            onClick={() => setBlocsView(sub.id as 'scenes' | 'chasers')}
+                                            className={`flex items-center gap-1.5 h-6 px-2.5 rounded-md text-[9px] font-black uppercase tracking-wider transition-all ${
+                                                blocsView === sub.id
+                                                    ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/25'
+                                                    : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                                            }`}
+                                        >
+                                            {sub.label}
+                                            <span className="text-[7px] opacity-60 normal-case font-bold">{sub.hint}</span>
+                                        </button>
+                                    ))}
                                 </div>
-                                <ChaserTrackPanel />
+                                <div className="flex-1 min-h-0">
+                                    {blocsView === 'scenes' ? <SceneClipPanel /> : <ChaserTrackPanel />}
+                                </div>
                             </div>
                         )}
                         {arrangementTab === 'cues' && <CueClipPanel />}
