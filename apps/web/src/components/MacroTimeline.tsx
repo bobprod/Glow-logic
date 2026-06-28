@@ -312,7 +312,10 @@ export default function MacroTimeline() {
     // Modals
     const [newClipPending, setNewClipPending] = useState<{ track: TimelineTrackId; startTime: number } | null>(null);
     const [newMarkerPending, setNewMarkerPending] = useState<number | null>(null);
-    const [arrangementTab, setArrangementTab] = useState<'scenes' | 'cues' | 'chasers' | 'automations' | 'visualizer'>('scenes');
+    // Onglets regroupés : "blocs" = blocs réutilisables (scènes statiques +
+    // chasers animés, même famille) ; "cues" = structure/séquence du show
+    // (niveau différent, gardé à part) ; automations/visualizer = modes d'affichage.
+    const [arrangementTab, setArrangementTab] = useState<'blocs' | 'cues' | 'automations' | 'visualizer'>('blocs');
 
     // Refs
     const tracksBodyRef = useRef<HTMLDivElement>(null); // zone tracks (sans labels)
@@ -1826,20 +1829,37 @@ export default function MacroTimeline() {
                 {/* ===== Arrangement Tools ===== */}
                 <div className="w-[420px] flex flex-col p-2.5 bg-[#12141A]">
                     <div className="flex items-center gap-1 border-b border-[#262c36] pb-1.5 mb-2">
+                        {/* Contenu : blocs réutilisables (scènes+chasers) puis la séquence du show */}
                         {[
-                            { id: 'scenes', label: 'Scenes' },
+                            { id: 'blocs', label: 'Blocs' },
                             { id: 'cues', label: 'Cues' },
-                            { id: 'chasers', label: 'Chasers' },
+                        ].map((tab) => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setArrangementTab(tab.id as typeof arrangementTab)}
+                                className={`timeline-tab-${tab.id} h-7 px-2.5 rounded-lg text-[9px] font-black uppercase tracking-wider border transition-all ${
+                                    arrangementTab === tab.id
+                                        ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300'
+                                        : 'bg-black/20 border-white/5 text-slate-500 hover:text-slate-300'
+                                }`}
+                            >
+                                {tab.label}
+                            </button>
+                        ))}
+                        {/* Séparateur : ce qui suit = modes d'affichage, pas du contenu */}
+                        <div className="w-px h-5 bg-[#262c36] mx-1" />
+                        {[
                             { id: 'automations', label: 'Auto' },
                             { id: 'visualizer', label: '3D' },
                         ].map((tab) => (
                             <button
                                 key={tab.id}
                                 onClick={() => setArrangementTab(tab.id as typeof arrangementTab)}
-                                className={`timeline-tab-${tab.id} h-7 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider border transition-all ${
+                                title="Mode d'affichage"
+                                className={`timeline-tab-${tab.id} h-7 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${
                                     arrangementTab === tab.id
-                                        ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300'
-                                        : 'bg-black/20 border-white/5 text-slate-500 hover:text-slate-300'
+                                        ? 'text-purple-300 bg-purple-500/10 border border-purple-500/25'
+                                        : 'text-slate-600 hover:text-slate-400 border border-transparent'
                                 }`}
                             >
                                 {tab.label}
@@ -1849,9 +1869,18 @@ export default function MacroTimeline() {
                     </div>
 
                     <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
-                        {arrangementTab === 'scenes' && <SceneClipPanel />}
+                        {arrangementTab === 'blocs' && (
+                            <div className="space-y-3">
+                                <SceneClipPanel />
+                                <div className="flex items-center gap-2 pt-1">
+                                    <div className="h-px flex-1 bg-[#262c36]" />
+                                    <span className="text-[8px] font-black uppercase tracking-widest text-slate-500">Chasers · animés</span>
+                                    <div className="h-px flex-1 bg-[#262c36]" />
+                                </div>
+                                <ChaserTrackPanel />
+                            </div>
+                        )}
                         {arrangementTab === 'cues' && <CueClipPanel />}
-                        {arrangementTab === 'chasers' && <ChaserTrackPanel />}
                         {arrangementTab === 'visualizer' && (
                             <div className="flex h-full min-h-[220px] flex-col overflow-hidden rounded-lg border border-purple-500/20 bg-black/30">
                                 <div className="flex h-8 shrink-0 items-center gap-2 border-b border-white/5 px-2">
@@ -1863,7 +1892,7 @@ export default function MacroTimeline() {
                                         type="button"
                                         onClick={() => {
                                             setProView('visualizer');
-                                            setArrangementTab('scenes');
+                                            setArrangementTab('blocs');
                                         }}
                                         className="flex h-6 items-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 text-[8px] font-black uppercase tracking-wider text-slate-400 transition-colors hover:border-purple-500/35 hover:text-purple-200"
                                         title="Detacher en grande vue"
